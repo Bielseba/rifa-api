@@ -16,16 +16,21 @@ app.use(express.json());
 app.use(morgan('dev'));
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
 
-app.get('/api/health', (req,res)=> res.json({ ok:true, now:new Date().toISOString() }));
+app.get('/health', (req, res) => res.json({ ok: true, now: new Date().toISOString() }));
 
-app.use('/api/auth', authRoutes);
-app.use('/api/campaigns', campaignsRoutes);
-app.use('/api/user', userRoutes);
-app.use('/api/purchases', purchasesRoutes);
-app.use('/api/winners', winnersRoutes);
-app.use('/api/webhooks', webhooksRoutes);
+app.use('/auth', authRoutes);
+app.use('/campaigns', campaignsRoutes);
+app.use('/user', userRoutes);
+app.use('/purchases', purchasesRoutes);
+app.use('/winners', winnersRoutes);
+app.use('/webhooks', webhooksRoutes);
 
-app.use((req,res)=> res.status(404).json({ error:'Not found' }));
+app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
-const PORT = process.env.PORT || 4000;
-app.listen(PORT, ()=> console.log(`API ON http://localhost:${PORT}`));
+export default app;
+
+
+if (!process.env.VERCEL) {
+  const PORT = process.env.PORT || 4000;
+  app.listen(PORT, () => console.log(`API local em http://localhost:${PORT}`));
+}

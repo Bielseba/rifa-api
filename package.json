@@ -1,14 +1,12 @@
 {
   "name": "melhorando-classicos-api",
   "version": "1.0.0",
-  "description": "API Node.js para Melhorando Cl\u00e1ssicos (rifas, campanhas, tickets, compras, winners).",
   "type": "module",
   "main": "src/server.js",
   "scripts": {
     "dev": "node src/server.js"
   },
   "dependencies": {
-    "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dayjs": "^1.11.13",
     "dotenv": "^16.4.5",
