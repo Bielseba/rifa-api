@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "src/server.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "src/server.js"
+    }
+  ],
+  "env": {
+    "DATABASE_URL": "postgresql://neondb_owner:npg_c0GiBvAkM2jh@ep-curly-darkness-adse41g5-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
+    "JWT_SECRET": "change_me_to_a_long_random_secret",
+    "PORT": "4000",
+    "RESERVATION_MINUTES": "10",
+    "CORS_ORIGIN": "*"
+  }
+}
