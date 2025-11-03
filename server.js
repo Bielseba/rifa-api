@@ -2,7 +2,7 @@ import express from 'express';
 import morgan from 'morgan';
 import cors from 'cors';
 import dotenv from 'dotenv';
-
+import adminRoutes from './routes/admin.routes.js';
 dotenv.config();
 
 import authRoutes from './routes/auth.routes.js';
@@ -18,7 +18,7 @@ app.use(morgan('dev'));
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
 
 app.get('/health', (req, res) => res.json({ ok: true, now: new Date().toISOString() }));
-
+app.use('/admin', adminRoutes);
 app.use('/auth', authRoutes);
 app.use('/campaigns', campaignsRoutes);
 app.use('/user', userRoutes);
