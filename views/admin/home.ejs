@@ -1,22 +1,57 @@
-<% layout('layout') -%>
-<div class="cards">
-  <% if (!campaigns || campaigns.length === 0) { %>
-    <div class="empty">Nenhuma campanha ainda. <a href="/admin-ui/campaigns/new">Criar agora</a>.</div>
-  <% } %>
-  <% campaigns.forEach(c => { %>
-    <div class="card">
-      <div class="card-head">
-        <strong><%= c.title %></strong>
-        <span class="badge <%= c.status %>"><%= c.status %></span>
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= title || 'Dashboard Admin' %></title>
+  <link rel="stylesheet" href="/public/css/admin.css">
+</head>
+<body>
+  <header class="admin-header">
+    <h1>Painel Admin</h1>
+    <nav>
+      <a href="/admin-ui" class="active">Dashboard</a>
+      <a href="/admin-ui/campaigns/new">Nova Campanha</a>
+      <form method="post" action="/admin-ui/logout" style="display:inline;">
+        <button type="submit" class="logout-btn">Sair</button>
+      </form>
+    </nav>
+  </header>
+
+  <main class="admin-main">
+    <section class="dashboard-section">
+      <h2>Campanhas Atuais</h2>
+
+      <div class="cards">
+        <% if (!campaigns || campaigns.length === 0) { %>
+          <div class="empty">
+            Nenhuma campanha ainda.
+            <a href="/admin-ui/campaigns/new" class="btn">Criar agora</a>.
+          </div>
+        <% } else { %>
+          <% campaigns.forEach(c => { %>
+            <div class="card">
+              <div class="card-head">
+                <strong><%= c.title %></strong>
+                <span class="badge <%= c.status %>"><%= c.status %></span>
+              </div>
+              <div class="card-body">
+                <div>Preço: R$ <%= Number(c.ticket_price).toFixed(2) %></div>
+                <div>Total: <%= c.total_tickets %></div>
+                <div>Sorteio: <%= c.draw_date ? new Date(c.draw_date).toLocaleString() : '-' %></div>
+              </div>
+              <div class="card-foot">
+                <a class="btn" href="/admin-ui/campaigns/<%= c.id %>/numbers">Gerenciar números</a>
+              </div>
+            </div>
+          <% }) %>
+        <% } %>
       </div>
-      <div class="card-body">
-        <div>Preço: R$ <%= Number(c.ticket_price).toFixed(2) %></div>
-        <div>Total: <%= c.total_tickets %></div>
-        <div>Sorteio: <%= c.draw_date ? new Date(c.draw_date).toLocaleString() : '-' %></div>
-      </div>
-      <div class="card-foot">
-        <a class="btn" href="/admin-ui/campaigns/<%= c.id %>/numbers">Gerenciar números</a>
-      </div>
-    </div>
-  <% }) %>
-</div>
+    </section>
+  </main>
+
+  <footer class="admin-footer">
+    <p>&copy; <%= new Date().getFullYear() %> Painel de Rifas</p>
+  </footer>
+</body>
+</html>

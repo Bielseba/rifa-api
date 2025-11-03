@@ -3,6 +3,7 @@ import express from 'express';
 import morgan from 'morgan';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import ejsMate from "ejs-mate"
 dotenv.config();
 
 
@@ -30,7 +31,8 @@ app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
+app.set("view engine", "ejs");
+app.engine("ejs", ejsMate);
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 useCookieParser(app); 

@@ -1,37 +1,74 @@
-<% layout('layout') -%>
-<div class="panel">
-  <div class="panel-row">
-    <div>
-      <h3><%= campaign.title %></h3>
-      <div class="muted">ID: <%= campaign.id %> • Preço: R$ <%= Number(campaign.ticket_price).toFixed(2) %> •
-        Total: <%= campaign.total_tickets %> • Sorteio: <%= campaign.draw_date ? new Date(campaign.draw_date).toLocaleString() : '-' %>
-      </div>
-    </div>
-    <div>
-      <form method="post" action="/admin-ui/campaigns/<%= campaign.id %>/reserve" class="inline-form">
-        <input name="ticket_number" placeholder="Número ex. 012" required />
-        <input name="minutes" type="number" min="1" value="60" />
-        <button class="btn" type="submit">Reservar</button>
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= title || ('Números · ' + (campaign?.title || 'Campanha')) %></title>
+  <link rel="stylesheet" href="/public/css/admin.css">
+</head>
+<body>
+  <header class="admin-header">
+    <h1>Painel Admin</h1>
+    <nav>
+      <a href="/admin-ui">Dashboard</a>
+      <a href="/admin-ui/campaigns/new">Nova Campanha</a>
+      <form method="post" action="/admin-ui/logout" style="display:inline;">
+        <button type="submit" class="logout-btn">Sair</button>
       </form>
-      <form method="post" action="/admin-ui/campaigns/<%= campaign.id %>/release" class="inline-form">
-        <input name="ticket_number" placeholder="Número ex. 012" required />
-        <button class="btn light" type="submit">Liberar</button>
-      </form>
-      <form method="post" action="/admin-ui/campaigns/<%= campaign.id %>/sell" class="inline-form">
-        <input name="ticket_number" placeholder="Número ex. 050" required />
-        <input name="customer_name" placeholder="Cliente" />
-        <input name="customer_phone" placeholder="Telefone" />
-        <button class="btn success" type="submit">Vender</button>
-      </form>
-    </div>
-  </div>
+    </nav>
+  </header>
 
-  <div class="grid-numbers">
-    <% numbers.forEach(n => { %>
-      <div class="num <%= n.status %>">
-        <span><%= n.ticket_number %></span>
-        <small><%= n.status %><% if(n.reserved_until){ %> até <%= new Date(n.reserved_until).toLocaleTimeString() %><% } %></small>
+  <main class="admin-main">
+    <section class="form-section">
+      <div class="panel">
+        <div class="panel-row">
+          <div>
+            <h3><%= campaign.title %></h3>
+            <div class="muted">
+              ID: <%= campaign.id %> •
+              Preço: R$ <%= Number(campaign.ticket_price).toFixed(2) %> •
+              Total: <%= campaign.total_tickets %> •
+              Sorteio: <%= campaign.draw_date ? new Date(campaign.draw_date).toLocaleString() : '-' %>
+            </div>
+          </div>
+          <div>
+            <form method="post" action="/admin-ui/campaigns/<%= campaign.id %>/reserve" class="inline-form">
+              <input name="ticket_number" placeholder="Número ex. 012" required />
+              <input name="minutes" type="number" min="1" value="60" />
+              <button class="btn" type="submit">Reservar</button>
+            </form>
+            <form method="post" action="/admin-ui/campaigns/<%= campaign.id %>/release" class="inline-form">
+              <input name="ticket_number" placeholder="Número ex. 012" required />
+              <button class="btn light" type="submit">Liberar</button>
+            </form>
+            <form method="post" action="/admin-ui/campaigns/<%= campaign.id %>/sell" class="inline-form">
+              <input name="ticket_number" placeholder="Número ex. 050" required />
+              <input name="customer_name" placeholder="Cliente" />
+              <input name="customer_phone" placeholder="Telefone" />
+              <button class="btn success" type="submit">Vender</button>
+            </form>
+          </div>
+        </div>
+
+        <div class="grid-numbers">
+          <% numbers.forEach(n => { %>
+            <div class="num <%= n.status %>">
+              <span><%= n.ticket_number %></span>
+              <small>
+                <%= n.status %>
+                <% if (n.reserved_until) { %>
+                  até <%= new Date(n.reserved_until).toLocaleTimeString() %>
+                <% } %>
+              </small>
+            </div>
+          <% }) %>
+        </div>
       </div>
-    <% }) %>
-  </div>
-</div>
+    </section>
+  </main>
+
+  <footer class="admin-footer">
+    <p>&copy; <%= new Date().getFullYear() %> Painel de Rifas</p>
+  </footer>
+</body>
+</html>
