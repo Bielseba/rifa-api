@@ -4,6 +4,15 @@
     { "src": "server.js", "use": "@vercel/node" }
   ],
   "routes": [
+    { "src": "/admin-ui/(.*)", "dest": "server.js" },
+    { "src": "/admin/(.*)", "dest": "server.js" },
+    { "src": "/auth/(.*)", "dest": "server.js" },
+    { "src": "/campaigns/(.*)", "dest": "server.js" },
+    { "src": "/user/(.*)", "dest": "server.js" },
+    { "src": "/purchases/(.*)", "dest": "server.js" },
+    { "src": "/winners/(.*)", "dest": "server.js" },
+    { "src": "/webhooks/(.*)", "dest": "server.js" },
+    { "src": "/public/(.*)", "dest": "server.js" },
     { "src": "/(.*)", "dest": "server.js" }
   ],
   "env": {

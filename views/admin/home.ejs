@@ -1,0 +1,22 @@
+<% layout('layout') -%>
+<div class="cards">
+  <% if (!campaigns || campaigns.length === 0) { %>
+    <div class="empty">Nenhuma campanha ainda. <a href="/admin-ui/campaigns/new">Criar agora</a>.</div>
+  <% } %>
+  <% campaigns.forEach(c => { %>
+    <div class="card">
+      <div class="card-head">
+        <strong><%= c.title %></strong>
+        <span class="badge <%= c.status %>"><%= c.status %></span>
+      </div>
+      <div class="card-body">
+        <div>Preço: R$ <%= Number(c.ticket_price).toFixed(2) %></div>
+        <div>Total: <%= c.total_tickets %></div>
+        <div>Sorteio: <%= c.draw_date ? new Date(c.draw_date).toLocaleString() : '-' %></div>
+      </div>
+      <div class="card-foot">
+        <a class="btn" href="/admin-ui/campaigns/<%= c.id %>/numbers">Gerenciar números</a>
+      </div>
+    </div>
+  <% }) %>
+</div>

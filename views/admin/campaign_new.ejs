@@ -1,0 +1,47 @@
+<% layout('layout') -%>
+<form class="form" method="post" action="/admin-ui/campaigns/new">
+  <% if (error) { %><div class="alert"><%= error %></div><% } %>
+
+  <div class="grid">
+    <div>
+      <label>Título</label>
+      <input name="title" required />
+    </div>
+    <div>
+      <label>Imagem (URL)</label>
+      <input name="image_url" />
+    </div>
+    <div>
+      <label>Status</label>
+      <select name="status">
+        <option value="active">active</option>
+        <option value="finished">finished</option>
+        <option value="upcoming">upcoming</option>
+      </select>
+    </div>
+    <div>
+      <label>Preço por número</label>
+      <input name="ticket_price" type="number" step="0.01" required />
+    </div>
+    <div>
+      <label>Total de números</label>
+      <input name="total_tickets" type="number" required />
+    </div>
+    <div>
+      <label>Data do sorteio</label>
+      <input name="draw_date" type="datetime-local" />
+    </div>
+  </div>
+
+  <fieldset class="mt">
+    <label><input type="checkbox" name="auto_generate" value="on" /> Gerar números automaticamente</label>
+    <div class="inline">
+      <label>Dígitos</label>
+      <input name="digits" type="number" min="2" max="6" value="3" />
+    </div>
+  </fieldset>
+
+  <div class="actions">
+    <button class="btn" type="submit">Criar campanha</button>
+  </div>
+</form>

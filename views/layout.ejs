@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= title %> · Admin</title>
+  <link rel="stylesheet" href="/public/css/admin.css" />
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">Rifa Admin</div>
+    <nav>
+      <a href="/admin-ui">Dashboard</a>
+      <a href="/admin-ui/campaigns/new">Nova Campanha</a>
+      <form action="/admin-ui/expire-reservations" method="post">
+        <button type="submit" class="linkish">Expirar Reservas</button>
+      </form>
+      <form action="/admin-ui/logout" method="post">
+        <button type="submit" class="danger">Sair</button>
+      </form>
+    </nav>
+  </aside>
+  <main class="content">
+    <header class="topbar">
+      <h1><%= title %></h1>
+      <div class="me">👤 <%= admin ? admin.username : "" %></div>
+    </header>
+    <section class="page">
+      <%- body %>
+    </section>
+  </main>
+</body>
+</html>
