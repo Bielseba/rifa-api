@@ -66,7 +66,7 @@ router.get('/', async (req, res, next) => {
     `;
     const args = [];
     if (status) {
-      q += ' WHERE c.status=$1';
+      q += ' WHERE (c.status = $1 OR c.status = \'expired\')';
       args.push(status);
     }
     q += ' ORDER BY c.id DESC';
