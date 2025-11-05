@@ -76,6 +76,7 @@ router.post('/', authRequired, async (req, res, next) => {
       const price = Number(cmp.rows[0].ticket_price);
       const subtotal = price * normalized.length;
 
+      // Compra concluída (completed)
       const ins = await client.query(
         `INSERT INTO purchases (user_id, campaign_id, total_amount, status)
          VALUES ($1, $2, $3, 'completed')
@@ -84,6 +85,7 @@ router.post('/', authRequired, async (req, res, next) => {
       );
       const purchase = ins.rows[0];
 
+      // Vincula tickets comprados
       for (const tk of upd.rows) {
         await client.query(
           'INSERT INTO purchased_tickets (purchase_id, ticket_id) VALUES ($1, $2)',
