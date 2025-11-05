@@ -29,8 +29,8 @@ app.engine('ejs', ejsMate);
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
-app.locals._layoutFile = 'admin/layout';  
 
+app.locals.layout = 'admin/layout';
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
