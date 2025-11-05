@@ -46,7 +46,7 @@ a{color:var(--primary);text-decoration:none}
 .kpi .l{color:var(--muted);font-size:12px}
 
 .table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
-.table th,.table td{padding:12px 14px;border-bottom:1px solid var(--line);font-size:14px}
+.table th,.table td{padding:12px 14px;border-bottom:1px solid var(--line);font-size:14px;vertical-align:middle}
 .table th{background:#0f1a30;color:#cbd5e1;text-align:left}
 
 .badge{padding:4px 10px;border-radius:999px;font-size:12px;border:1px solid var(--line);white-space:nowrap}
