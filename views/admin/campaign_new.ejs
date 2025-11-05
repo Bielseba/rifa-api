@@ -1,79 +1,134 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title><%= title || 'Nova Campanha' %></title>
-  <link rel="stylesheet" href="/public/css/admin.css">
-</head>
-<body>
-  <header class="admin-header">
-    <h1>Painel Admin</h1>
-    <nav>
-      <a href="/admin-ui">Dashboard</a>
-      <a href="/admin-ui/campaigns/new" class="active">Nova Campanha</a>
-      <form method="post" action="/admin-ui/logout" style="display:inline;">
-        <button type="submit" class="logout-btn">Sair</button>
-      </form>
-    </nav>
-  </header>
+<%
+  let dup = {};
+  try {
+    if (typeof query !== 'undefined' && query.duplicate) {
+      dup = JSON.parse(query.duplicate || '{}');
+    }
+  } catch(e) { dup = {}; }
+%>
 
-  <main class="admin-main">
-    <section class="form-section">
-      <h2>Criar Nova Campanha</h2>
-      <% if (error) { %>
-        <div class="alert"><%= error %></div>
-      <% } %>
+<form class="form" method="post" action="/admin-ui/campaigns/new" id="newCampaignForm">
+  <% if (error) { %><div class="alert"><%= error %></div><% } %>
 
-      <form class="form" method="post" action="/admin-ui/campaigns/new">
-        <div class="grid">
-          <div>
-            <label>Título</label>
-            <input name="title" required />
-          </div>
-          <div>
-            <label>Imagem (URL)</label>
-            <input name="image_url" />
-          </div>
-          <div>
-            <label>Status</label>
-            <select name="status">
-              <option value="active">Ativa</option>
-              <option value="finished">Finalizada</option>
-              <option value="upcoming">Em breve</option>
-            </select>
-          </div>
-          <div>
-            <label>Preço por número</label>
-            <input name="ticket_price" type="number" step="0.01" required />
-          </div>
-          <div>
-            <label>Total de números</label>
-            <input name="total_tickets" type="number" required />
-          </div>
-          <div>
-            <label>Data do sorteio</label>
-            <input name="draw_date" type="datetime-local" />
-          </div>
+  <div class="grid">
+    <div>
+      <label>Título</label>
+      <input name="title" id="title" value="<%= dup.title || '' %>" required />
+    </div>
+    <div>
+      <label>Imagem (URL)</label>
+      <input name="image_url" id="image_url" value="<%= dup.image_url || '' %>"/>
+    </div>
+    <div>
+      <label>Status</label>
+      <select name="status" id="status">
+        <option value="active">active</option>
+        <option value="finished">finished</option>
+        <option value="upcoming">upcoming</option>
+        <option value="expired">expired</option>
+      </select>
+    </div>
+    <div>
+      <label>Preço por número (R$)</label>
+      <input name="ticket_price" id="ticket_price" type="number" step="0.01" value="<%= dup.ticket_price || '' %>" required />
+    </div>
+    <div>
+      <label>Meta de arrecadação (R$)</label>
+      <input id="target_revenue" type="number" step="0.01" placeholder="Ex.: 50.000,00" />
+    </div>
+    <div>
+      <label>Total de números</label>
+      <input name="total_tickets" id="total_tickets" type="number" value="<%= dup.total_tickets || '' %>" required />
+    </div>
+    <div>
+      <label>Dígitos</label>
+      <input name="digits" id="digits" type="number" min="2" max="8" value="3" />
+    </div>
+    <div>
+      <label>Data do sorteio</label>
+      <input name="draw_date" id="draw_date" type="datetime-local" value="<%= dup.draw_date ? new Date(new Date(dup.draw_date).getTime()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16) : '' %>" />
+    </div>
+  </div>
+
+  <div class="mt" style="display:flex;flex-direction:column;gap:12px">
+    <div class="form" style="display:flex;flex-direction:column;gap:12px">
+      <div class="inline">
+        <label style="margin:0"><input type="checkbox" name="auto_generate" id="auto_generate" value="on" checked /> Gerar números automaticamente</label>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px">
+        <div>
+          <div class="muted" style="font-size:12px">Números calculados</div>
+          <div id="calc_num" style="font-weight:700;font-size:20px">-</div>
         </div>
-
-        <fieldset class="mt">
-          <label><input type="checkbox" name="auto_generate" value="on" /> Gerar números automaticamente</label>
-          <div class="inline">
-            <label>Dígitos</label>
-            <input name="digits" type="number" min="2" max="6" value="3" />
-          </div>
-        </fieldset>
-
-        <div class="actions">
-          <button class="btn" type="submit">Criar campanha</button>
+        <div>
+          <div class="muted" style="font-size:12px">Dígitos sugeridos</div>
+          <div id="calc_digits" style="font-weight:700;font-size:20px">-</div>
         </div>
-      </form>
-    </section>
-  </main>
+        <div>
+          <div class="muted" style="font-size:12px">Arrecadação estimada</div>
+          <div id="calc_est" style="font-weight:700;font-size:20px">R$ -</div>
+        </div>
+      </div>
+    </div>
+  </div>
 
-  <footer class="admin-footer">
-    <p>&copy; <%= new Date().getFullYear() %> Painel de Rifas</p>
-  </footer>
-</body>
-</html>
+  <div class="mt" style="display:flex;gap:10px;justify-content:flex-end">
+    <a class="btn ghost" href="/admin-ui">Cancelar</a>
+    <button class="btn ok" type="submit">Criar campanha</button>
+  </div>
+</form>
+
+<script>
+  function toNumber(x){ const v = String(x||'').replace(/\./g,'').replace(',','.'); const n = parseFloat(v); return isNaN(n)?0:n; }
+  function formatBRL(n){ try{ return n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});}catch{ return 'R$ '+n.toFixed(2); } }
+  function suggestDigits(total){ if(total<=99) return 2; if(total<=999) return 3; if(total<=9999) return 4; if(total<=99999) return 5; if(total<=999999) return 6; if(total<=9999999) return 7; return 8; }
+
+  const priceEl = document.getElementById('ticket_price');
+  const targetEl = document.getElementById('target_revenue');
+  const totalEl = document.getElementById('total_tickets');
+  const digitsEl = document.getElementById('digits');
+  const estEl = document.getElementById('calc_est');
+  const calcNumEl = document.getElementById('calc_num');
+  const calcDigitsEl = document.getElementById('calc_digits');
+  const autoGenEl = document.getElementById('auto_generate');
+
+  function recalc(){
+    const price = parseFloat(priceEl.value||'0');
+    const target = toNumber(targetEl.value||'0');
+    let total = parseInt(totalEl.value||'0',10);
+
+    if(target>0 && price>0){
+      const suggested = Math.ceil(target/price);
+      calcNumEl.textContent = suggested;
+      if(!total || document.activeElement===targetEl || document.activeElement===priceEl){
+        total = suggested;
+        totalEl.value = String(total);
+      }
+    } else {
+      calcNumEl.textContent = total>0? total : '-';
+    }
+
+    const digits = suggestDigits(parseInt(totalEl.value||'0',10)||0);
+    calcDigitsEl.textContent = digits;
+    if(document.activeElement===targetEl || document.activeElement===priceEl || document.activeElement===totalEl){
+      if(!digitsEl.value || Number(digitsEl.value)<digits) digitsEl.value = digits;
+    }
+
+    const est = (parseFloat(priceEl.value||'0')||0) * (parseInt(totalEl.value||'0',10)||0);
+    estEl.textContent = formatBRL(est);
+  }
+
+  priceEl.addEventListener('input', recalc);
+  targetEl.addEventListener('input', recalc);
+  totalEl.addEventListener('input', recalc);
+  digitsEl.addEventListener('input', recalc);
+  autoGenEl.addEventListener('change', recalc);
+  recalc();
+
+  document.getElementById('newCampaignForm').addEventListener('submit', function(e){
+    if(!autoGenEl.checked){ return; }
+    const t = parseInt(totalEl.value||'0',10);
+    const d = parseInt(digitsEl.value||'0',10);
+    if(!t || !d){ e.preventDefault(); alert('Defina total de números e dígitos válidos.'); }
+  });
+</script>
