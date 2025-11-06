@@ -2,7 +2,7 @@ import express from 'express';
 import morgan from 'morgan';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import ejsMate from 'ejs-mate';
+import cookieParser from 'cookie-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -13,42 +13,23 @@ import userRoutes from './routes/user.routes.js';
 import purchasesRoutes from './routes/purchases.routes.js';
 import winnersRoutes from './routes/winners.routes.js';
 import webhooksRoutes from './routes/webhooks.routes.js';
-import adminUiRoutes from './routes/admin.ui.routes.js';
-import { useCookieParser } from './middleware/adminViewAuth.js';
 
 dotenv.config();
 
 const app = express();
 
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-
-app.engine('ejs', ejsMate);
-app.set('view engine', 'ejs');
-app.set('views', path.join(__dirname, 'views'));
-
-
-app.locals.layout = 'admin/layout';
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(morgan('dev'));
-app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
-
-
-useCookieParser(app);
-
+app.use(cors({ origin: process.env.CORS_ORIGIN || '*', credentials: true }));
+app.use(cookieParser(process.env.JWT_SECRET || 'dev_secret'));
 
 app.use('/public', express.static(path.join(__dirname, 'public')));
 
-
 app.get('/health', (req, res) => res.json({ ok: true, now: new Date().toISOString() }));
-
-
-app.use('/admin-ui', adminUiRoutes);
-
 
 app.use('/admin', adminRoutes);
 app.use('/auth', authRoutes);
