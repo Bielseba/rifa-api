@@ -1,4 +1,4 @@
-<% 
+<%
   const campaignsArr = Array.isArray(campaigns) ? campaigns : [];
   const totals = {
     campaigns: campaignsArr.length,
@@ -7,6 +7,13 @@
     winners: campaignsArr.filter(c=>c.winner).length
   };
 %>
+
+<style>
+  .progress-wrap{display:flex;align-items:center;gap:10px}
+  .progress{height:8px;background:#0f1425;border:1px solid #232a3d;border-radius:999px;overflow:hidden;width:160px}
+  .progress > span{display:block;height:100%;background:linear-gradient(90deg,#22d3ee,#7c5cff);width:calc(var(--w,0) * 1%)}
+  .muted{color:#8e9aac}
+</style>
 
 <div class="cards">
   <div class="card kpi"><div class="l">Campanhas</div><div class="v"><%= totals.campaigns %></div></div>
@@ -31,24 +38,35 @@
     <% if (!campaignsArr.length) { %>
       <tr><td colspan="7">Nenhuma campanha cadastrada.</td></tr>
     <% } %>
-    <% campaignsArr.forEach(c => { %>
+    <% campaignsArr.forEach(c => { 
+         const pct = Math.min(Math.max(c.progress||0,0),100);
+    %>
       <tr>
         <td>#<%= c.id %></td>
-        <td style="max-width:280px">
-          <div style="display:flex;align-items:center;gap:10px">
-            <img src="<%= c.imageUrl || 'https://via.placeholder.com/56x40?text=%F0%9F%8E%9F' %>" alt="" style="width:56px;height:40px;object-fit:cover;border-radius:8px;border:1px solid #1f2740">
+        <td style="max-width:320px">
+          <div style="display:flex;align-items:center;gap:12px">
+            <img src="<%= c.imageUrl || 'https://via.placeholder.com/56x40?text=%F0%9F%8E%9F' %>" alt="" style="width:56px;height:40px;object-fit:cover;border-radius:8px;border:1px solid #283152">
             <div>
-              <div style="font-weight:600;line-height:1.1"><%= c.title %></div>
+              <div style="font-weight:600;line-height:1.15"><%= c.title %></div>
               <div class="muted" style="font-size:12px">ID <%= c.id %></div>
             </div>
           </div>
         </td>
         <td>
-          <% if (c.status === 'active') { %><span class="badge b-active">active</span><% } %>
-          <% if (c.status === 'upcoming') { %><span class="badge b-upcoming">upcoming</span><% } %>
-          <% if (c.status === 'expired' || c.status === 'finished') { %><span class="badge b-expired"><%= c.status %></span><% } %>
+          <% if (c.status === 'active') { %>
+            <span class="badge b-active">active</span>
+          <% } else if (c.status === 'upcoming') { %>
+            <span class="badge b-upcoming">upcoming</span>
+          <% } else { %>
+            <span class="badge b-expired"><%= c.status %></span>
+          <% } %>
         </td>
-        <td><%= c.progress %>%</td>
+        <td>
+          <div class="progress-wrap">
+            <div class="progress"><span style="--w:<%= pct %>"></span></div>
+            <span class="muted"><%= pct %>%</span>
+          </div>
+        </td>
         <td><%= c.resultDate ? new Date(c.resultDate).toLocaleString() : '-' %></td>
         <td>
           <% if (c.winner) { %>
