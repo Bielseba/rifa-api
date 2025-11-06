@@ -186,13 +186,64 @@ router.get('/campaigns/:id/peek-winner', adminRequired, async (req, res, next) =
   try {
     if (!req.admin?.is_master) return res.status(403).json({ error: 'master only' });
     const id = parseInt(req.params.id, 10);
-    const r = await pool.connect();
+
+    const client = await pool.connect();
     try {
-      const w = await pickDeterministicWinner(r, id);
-      if (!w) return res.json({ predicted: null });
-      return res.json({ predicted: { ticket_id: w.id, ticket_number: w.ticket_number, user_id: w.user_id } });
+      const winner = await (async () => {
+        const cq = await client.query(
+          'SELECT id, draw_date FROM public.campaigns WHERE id=$1',
+          [id]
+        );
+        if (!cq.rowCount) return { predicted: null, reason: 'campaign not found' };
+
+        // mesmo algoritmo determinístico do sorteio
+        const drawDate = cq.rows[0].draw_date;
+        const dateKey = drawDate ? new Date(drawDate).toISOString().slice(0,10) : 'nodraw';
+        const hash = crypto.createHash('sha256')
+          .update(`${id}|${process.env.DRAW_SALT || 'rifa_salt_2025'}|${dateKey}`)
+          .digest('hex');
+        const seed = (parseInt(hash.slice(0, 8), 16) >>> 0);
+
+        const r = await client.query(
+          `
+          WITH sold AS (
+            SELECT
+              t.id,
+              t.ticket_number,
+              p.user_id,
+              ROW_NUMBER() OVER (ORDER BY LPAD(t.ticket_number,12,'0')) AS rn,
+              COUNT(*) OVER() AS total
+            FROM public.tickets t
+            JOIN public.purchased_tickets pt ON pt.ticket_id = t.id
+            JOIN public.purchases p ON p.id = pt.purchase_id
+            WHERE t.campaign_id = $1
+              AND t.status = 'sold'
+              AND p.status = 'completed'
+          )
+          SELECT id, ticket_number, user_id, total
+          FROM sold
+          WHERE rn = ((($2 % GREATEST(total,1)) + 1))
+          `,
+          [id, seed]
+        );
+
+        if (!r.rowCount) return { predicted: null, reason: 'no sold tickets' };
+
+        const row = r.rows[0];
+        return {
+          predicted: {
+            ticket_id: String(row.id),
+            ticket_number: String(row.ticket_number),
+            user_id: String(row.user_id)
+          }
+        };
+      })();
+      return res.json({
+        predicted: winner.predicted ?? null,
+        reason: winner.reason ?? null
+      });
     } finally {
-      r.release();
+      client.release();
     }
   } catch (e) { next(e); }
 });
