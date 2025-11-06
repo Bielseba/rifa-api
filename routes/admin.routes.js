@@ -74,16 +74,13 @@ router.get('/campaigns/:id', adminRequired, async (req, res, next) => {
 router.post('/users', adminRequired, async (req, res, next) => {
   try {
     const { username, email, password, role } = req.body || {};
-    if (!username || !password)
-      return res.status(400).json({ error: 'username and password required' });
-
+    if (!username || !password) return res.status(400).json({ error: 'username and password required' });
     const r = await pool.query('SELECT * FROM admin_create_user($1,$2,$3,$4)', [
       username,
       email || null,
       password,
       role || 'admin'
     ]);
-
     res.status(201).json(r.rows[0]);
   } catch (e) { next(e); }
 });
@@ -189,6 +186,110 @@ router.post('/expire-reservations', adminRequired, async (req, res, next) => {
   try {
     const r = await pool.query('SELECT admin_expire_reservations() AS expired');
     res.json({ ok: true, expired: r.rows[0]?.expired ?? 0 });
+  } catch (e) { next(e); }
+});
+
+router.get('/campaigns/:id/metrics', adminRequired, async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const r = await pool.query(
+      `
+      WITH t AS (
+        SELECT
+          COUNT(*)::int AS tickets_total,
+          COUNT(*) FILTER (WHERE status='sold')::int AS tickets_sold,
+          COUNT(*) FILTER (WHERE status='reserved')::int AS tickets_reserved,
+          COUNT(*) FILTER (WHERE status='available')::int AS tickets_available
+        FROM public.tickets
+        WHERE campaign_id = $1
+      ),
+      p AS (
+        SELECT
+          COALESCE(SUM(total_amount),0)::numeric AS revenue_total,
+          COUNT(*) FILTER (WHERE status='completed')::int AS purchases_completed
+        FROM public.purchases
+        WHERE campaign_id = $1 AND status='completed'
+      ),
+      c AS (
+        SELECT id, title, ticket_price::numeric, total_tickets::int, status, draw_date, created_at, updated_at
+        FROM public.campaigns
+        WHERE id = $1
+      )
+      SELECT
+        c.id, c.title, c.ticket_price, c.total_tickets, c.status, c.draw_date, c.created_at, c.updated_at,
+        t.tickets_total, t.tickets_sold, t.tickets_reserved, t.tickets_available,
+        p.revenue_total, p.purchases_completed,
+        CASE WHEN t.tickets_total > 0 THEN ROUND((t.tickets_sold::numeric / t.tickets_total::numeric)*100,2) ELSE 0 END AS sold_percent
+      FROM c, t, p
+      `,
+      [id]
+    );
+    if (!r.rowCount) return res.status(404).json({ error: 'campaign not found' });
+    res.json(r.rows[0]);
+  } catch (e) { next(e); }
+});
+
+router.get('/campaigns/:id/sales', adminRequired, async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const limit = Math.min(parseInt(req.query.limit || '100', 10), 500);
+    const offset = parseInt(req.query.offset || '0', 10);
+    const r = await pool.query(
+      `
+      SELECT
+        p.id AS purchase_id,
+        p.user_id,
+        p.total_amount::numeric,
+        p.status,
+        ARRAY_AGG(t.ticket_number ORDER BY LPAD(t.ticket_number,12,'0')) AS numbers
+      FROM public.purchases p
+      JOIN public.purchased_tickets pt ON pt.purchase_id = p.id
+      JOIN public.tickets t ON t.id = pt.ticket_id
+      WHERE p.campaign_id = $1 AND p.status = 'completed'
+      GROUP BY p.id, p.user_id, p.total_amount, p.status
+      ORDER BY p.id DESC
+      LIMIT $2 OFFSET $3
+      `,
+      [id, limit, offset]
+    );
+    res.json(r.rows);
+  } catch (e) { next(e); }
+});
+
+router.get('/stats/overview', adminRequired, async (req, res, next) => {
+  try {
+    const r = await pool.query(
+      `
+      WITH c AS (
+        SELECT
+          COUNT(*)::int AS campaigns_count,
+          COALESCE(SUM(total_tickets),0)::int AS total_tickets_planned,
+          COALESCE(SUM((ticket_price::numeric) * (total_tickets::numeric)),0)::numeric AS gross_potential
+        FROM public.campaigns
+        WHERE status <> 'deleted'
+      ),
+      t AS (
+        SELECT
+          COUNT(*)::int AS tickets_total,
+          COUNT(*) FILTER (WHERE status='sold')::int AS tickets_sold,
+          COUNT(*) FILTER (WHERE status='reserved')::int AS tickets_reserved,
+          COUNT(*) FILTER (WHERE status='available')::int AS tickets_available
+        FROM public.tickets
+      ),
+      p AS (
+        SELECT
+          COALESCE(SUM(total_amount),0)::numeric AS revenue_total,
+          COUNT(*) FILTER (WHERE status='completed')::int AS purchases_completed
+        FROM public.purchases
+        WHERE status='completed'
+      )
+      SELECT c.campaigns_count, c.total_tickets_planned, c.gross_potential,
+             t.tickets_total, t.tickets_sold, t.tickets_reserved, t.tickets_available,
+             p.revenue_total, p.purchases_completed
+      FROM c, t, p
+      `
+    );
+    res.json(r.rows[0] || {});
   } catch (e) { next(e); }
 });
 
