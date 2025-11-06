@@ -125,13 +125,28 @@ router.patch('/campaigns/:id', adminRequired, async (req, res, next) => {
 
 router.delete('/campaigns/:id', adminRequired, async (req, res, next) => {
   try {
-    const idText = String(req.params.id);
+    const id = parseInt(req.params.id, 10);
+    const hard = String(req.query.hard || '').trim() === '1';
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'invalid id' });
+
+    if (hard) {
+      const r = await pool.query(
+        `DELETE FROM public.campaigns WHERE id = $1 RETURNING id`,
+        [id]
+      );
+      if (!r.rowCount) return res.status(404).json({ error: 'campaign not found' });
+      return res.status(204).end();
+    }
+
     const r = await pool.query(
-      `UPDATE public.campaigns SET status = 'deleted', updated_at = NOW() WHERE id::text = $1 RETURNING id`,
-      [idText]
+      `UPDATE public.campaigns
+         SET status = 'deleted', updated_at = NOW()
+       WHERE id = $1
+       RETURNING id`,
+      [id]
     );
     if (!r.rowCount) return res.status(404).json({ error: 'campaign not found' });
-    res.status(204).end();
+    return res.status(204).end();
   } catch (e) { next(e); }
 });
 
