@@ -85,7 +85,7 @@ router.post('/users', adminRequired, async (req, res, next) => {
 
 router.post('/campaigns', adminRequired, async (req, res, next) => {
   try {
-    const { title, description, image_url, ticket_price, total_tickets, draw_date, status, autoGenerateTickets, digits } = req.body || {};
+    const { title, description, image_url, ticket_price, total_tickets, draw_date, status, digits } = req.body || {};
     const r = await pool.query(
       `SELECT * FROM public.admin_create_campaign(
         $1::text,$2::text,$3::text,$4::numeric,$5::int,$6::timestamptz,$7::text
@@ -93,10 +93,39 @@ router.post('/campaigns', adminRequired, async (req, res, next) => {
       [title, description || null, image_url || null, ticket_price, total_tickets, draw_date || null, status || 'active']
     );
     const created = r.rows[0];
-    if (autoGenerateTickets) {
-      await pool.query(`SELECT public.admin_generate_tickets($1::int,$2::int)`, [created.id, digits || 3]);
-    }
+    const d = Number.isFinite(Number(digits))
+      ? parseInt(digits, 10)
+      : Math.max(3, String(Math.max(0, Number(total_tickets || 0) - 1)).length);
+    await pool.query(`SELECT public.admin_generate_tickets($1::int,$2::int)`, [created.id, d]);
     res.status(201).json(created);
+  } catch (e) { next(e); }
+});
+
+router.post('/campaigns/:id/generate-tickets', adminRequired, async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const bodyDigits = parseInt(req.body?.digits || 0, 10);
+    let d = Number.isFinite(bodyDigits) && bodyDigits > 0 ? bodyDigits : null;
+    if (!d) {
+      const cq = await pool.query(`SELECT total_tickets FROM public.campaigns WHERE id=$1`, [id]);
+      if (!cq.rowCount) return res.status(404).json({ error: 'campaign not found' });
+      const total = Number(cq.rows[0].total_tickets || 0);
+      d = Math.max(3, String(Math.max(0, total - 1)).length);
+    }
+    await pool.query(`SELECT public.admin_generate_tickets($1::int,$2::int)`, [id, d]);
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+router.post('/campaigns/:id/generate-tickets-all', adminRequired, async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const cq = await pool.query(`SELECT total_tickets FROM public.campaigns WHERE id=$1`, [id]);
+    if (!cq.rowCount) return res.status(404).json({ error: 'campaign not found' });
+    const total = Number(cq.rows[0].total_tickets || 0);
+    const d = Math.max(3, String(Math.max(0, total - 1)).length);
+    await pool.query(`SELECT public.admin_generate_tickets($1::int,$2::int)`, [id, d]);
+    res.json({ ok: true });
   } catch (e) { next(e); }
 });
 
@@ -147,15 +176,6 @@ router.delete('/campaigns/:id', adminRequired, async (req, res, next) => {
     );
     if (!r.rowCount) return res.status(404).json({ error: 'campaign not found' });
     return res.status(204).end();
-  } catch (e) { next(e); }
-});
-
-router.post('/campaigns/:id/generate-tickets', adminRequired, async (req, res, next) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    const digits = parseInt(req.body?.digits || 3, 10);
-    await pool.query(`SELECT public.admin_generate_tickets($1::int,$2::int)`, [id, digits]);
-    res.json({ ok: true });
   } catch (e) { next(e); }
 });
 
