@@ -5,7 +5,7 @@ const router = Router();
 
 async function autoExpireAndDraw() {
   await pool.query(`
-    UPDATE campaigns
+    UPDATE public.campaigns
        SET status = 'expired'
      WHERE draw_date IS NOT NULL
        AND draw_date <= now()
@@ -14,8 +14,8 @@ async function autoExpireAndDraw() {
 
   const expiredNoWinner = await pool.query(`
     SELECT c.id
-      FROM campaigns c
- LEFT JOIN winners w ON w.campaign_id = c.id
+      FROM public.campaigns c
+ LEFT JOIN public.winners w ON w.campaign_id = c.id
      WHERE c.status = 'expired'
        AND w.id IS NULL
   `);
@@ -25,9 +25,9 @@ async function autoExpireAndDraw() {
     const win = await pool.query(
       `
       SELECT t.id AS ticket_id, p.user_id, t.ticket_number
-        FROM tickets t
-        JOIN purchased_tickets pt ON pt.ticket_id = t.id
-        JOIN purchases p ON p.id = pt.purchase_id
+        FROM public.tickets t
+        JOIN public.purchased_tickets pt ON pt.ticket_id = t.id
+        JOIN public.purchases p ON p.id = pt.purchase_id
        WHERE t.campaign_id = $1
          AND t.status = 'sold'
        ORDER BY random()
@@ -38,7 +38,7 @@ async function autoExpireAndDraw() {
     if (win.rowCount) {
       const w = win.rows[0];
       await pool.query(
-        `INSERT INTO winners (campaign_id, user_id, winning_ticket_id) VALUES ($1,$2,$3)`,
+        `INSERT INTO public.winners (campaign_id, user_id, winning_ticket_id) VALUES ($1,$2,$3)`,
         [cid, w.user_id, w.ticket_id]
       );
     }
@@ -47,7 +47,7 @@ async function autoExpireAndDraw() {
 
 router.get('/', async (req, res, next) => {
   try {
-    try { await pool.query('SELECT expire_ticket_reservations()'); } catch {}
+    try { await pool.query('SELECT public.expire_ticket_reservations()'); } catch {}
     await autoExpireAndDraw();
 
     const { status } = req.query;
@@ -59,10 +59,10 @@ router.get('/', async (req, res, next) => {
              w.announced_at,
              u.name AS winner_name,
              t.ticket_number AS winner_ticket_number
-        FROM campaigns c
-   LEFT JOIN winners w ON w.campaign_id = c.id
-   LEFT JOIN users   u ON u.id = w.user_id
-   LEFT JOIN tickets t ON t.id = w.winning_ticket_id
+        FROM public.campaigns c
+   LEFT JOIN public.winners w ON w.campaign_id = c.id
+   LEFT JOIN public.users   u ON u.id = w.user_id
+   LEFT JOIN public.tickets t ON t.id = w.winning_ticket_id
     `;
     const args = [];
     if (status) {
@@ -76,11 +76,11 @@ router.get('/', async (req, res, next) => {
     const out = [];
     for (const c of rows) {
       const sold = await pool.query(
-        "SELECT COUNT(*)::int AS n FROM tickets WHERE campaign_id=$1 AND status IN ('sold')",
+        "SELECT COUNT(*)::int AS n FROM public.tickets WHERE campaign_id=$1 AND status IN ('sold')",
         [c.id]
       );
       const reserved = await pool.query(
-        "SELECT COUNT(*)::int AS n FROM tickets WHERE campaign_id=$1 AND status IN ('reserved')",
+        "SELECT COUNT(*)::int AS n FROM public.tickets WHERE campaign_id=$1 AND status IN ('reserved')",
         [c.id]
       );
       const progress = Math.floor(((sold.rows[0].n + reserved.rows[0].n) / c.total_tickets) * 100);
@@ -112,7 +112,7 @@ router.get('/', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
-    try { await pool.query('SELECT expire_ticket_reservations()'); } catch {}
+    try { await pool.query('SELECT public.expire_ticket_reservations()'); } catch {}
     await autoExpireAndDraw();
 
     const camp = await pool.query(
@@ -124,10 +124,10 @@ router.get('/:id', async (req, res, next) => {
              w.announced_at,
              u.name AS winner_name,
              t.ticket_number AS winner_ticket_number
-        FROM campaigns c
-   LEFT JOIN winners w ON w.campaign_id = c.id
-   LEFT JOIN users   u ON u.id = w.user_id
-   LEFT JOIN tickets t ON t.id = w.winning_ticket_id
+        FROM public.campaigns c
+   LEFT JOIN public.winners w ON w.campaign_id = c.id
+   LEFT JOIN public.users   u ON u.id = w.user_id
+   LEFT JOIN public.tickets t ON t.id = w.winning_ticket_id
        WHERE c.id=$1
       `,
       [id]
@@ -136,11 +136,11 @@ router.get('/:id', async (req, res, next) => {
     const c = camp.rows[0];
 
     const sold = await pool.query(
-      "SELECT COUNT(*)::int AS n FROM tickets WHERE campaign_id=$1 AND status IN ('sold')",
+      "SELECT COUNT(*)::int AS n FROM public.tickets WHERE campaign_id=$1 AND status IN ('sold')",
       [c.id]
     );
     const reserved = await pool.query(
-      "SELECT COUNT(*)::int AS n FROM tickets WHERE campaign_id=$1 AND status IN ('reserved')",
+      "SELECT COUNT(*)::int AS n FROM public.tickets WHERE campaign_id=$1 AND status IN ('reserved')",
       [c.id]
     );
     const progress = Math.floor(((sold.rows[0].n + reserved.rows[0].n) / c.total_tickets) * 100);
@@ -174,13 +174,12 @@ router.get('/:id', async (req, res, next) => {
 router.get('/:id/unavailable-tickets', async (req, res, next) => {
   try {
     const { id } = req.params;
-    try { await pool.query('SELECT expire_ticket_reservations()'); } catch {}
-    await autoExpireAndDraw();
+    try { await pool.query('SELECT public.expire_ticket_reservations()'); } catch {}
 
     const { rows } = await pool.query(
       `
       SELECT ticket_number, status
-        FROM tickets
+        FROM public.tickets
        WHERE campaign_id=$1
          AND status IN ('reserved','sold')
        ORDER BY LPAD(ticket_number, 12, '0') ASC

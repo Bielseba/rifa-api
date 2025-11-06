@@ -7,14 +7,13 @@ const router = Router();
 router.get('/profile', authRequired, async (req, res, next) => {
   try {
     const u = await pool.query(
-      'SELECT id, name, cpf, email, phone FROM users WHERE id=$1',
+      'SELECT id, name, cpf, email, phone FROM public.users WHERE id=$1',
       [req.user.id]
     );
     if (!u.rowCount) return res.status(404).json({ error: 'user not found' });
     res.json(u.rows[0]);
   } catch (e) { next(e); }
 });
-
 
 router.get('/my-titles', authRequired, async (req, res, next) => {
   try {
@@ -25,10 +24,10 @@ router.get('/my-titles', authRequired, async (req, res, next) => {
         pt.id   AS purchased_ticket_id,
         t.ticket_number,
         p.purchase_date
-      FROM purchases p
-      JOIN purchased_tickets pt ON pt.purchase_id = p.id
-      JOIN tickets t           ON t.id = pt.ticket_id
-      JOIN campaigns c         ON c.id = p.campaign_id
+      FROM public.purchases p
+      JOIN public.purchased_tickets pt ON pt.purchase_id = p.id
+      JOIN public.tickets t           ON t.id = pt.ticket_id
+      JOIN public.campaigns c         ON c.id = p.campaign_id
       WHERE p.user_id = $1
         AND p.status  = 'completed'
       ORDER BY p.purchase_date DESC, c.title, t.ticket_number
@@ -58,7 +57,6 @@ router.get('/my-titles', authRequired, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-
 router.get('/my-titles/search', authRequired, async (req, res, next) => {
   try {
     const qstr = (req.query?.q || '').toString().trim();
@@ -70,10 +68,10 @@ router.get('/my-titles/search', authRequired, async (req, res, next) => {
         c.title AS campaign_title,
         t.ticket_number,
         p.purchase_date
-      FROM purchases p
-      JOIN purchased_tickets pt ON pt.purchase_id = p.id
-      JOIN tickets t           ON t.id = pt.ticket_id
-      JOIN campaigns c         ON c.id = p.campaign_id
+      FROM public.purchases p
+      JOIN public.purchased_tickets pt ON pt.purchase_id = p.id
+      JOIN public.tickets t           ON t.id = pt.ticket_id
+      JOIN public.campaigns c         ON c.id = p.campaign_id
       WHERE p.user_id = $1
         AND p.status  = 'completed'
         AND c.title ILIKE $2
