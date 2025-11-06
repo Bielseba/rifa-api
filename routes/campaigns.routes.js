@@ -1,7 +1,47 @@
 import { Router } from 'express';
+import crypto from 'crypto';
 import { pool } from '../db.js';
 
 const router = Router();
+const DRAW_SALT = process.env.DRAW_SALT || 'rifa_salt_2025';
+
+function seedFromCampaign(id, drawDate) {
+  const dateKey = drawDate ? new Date(drawDate).toISOString().slice(0, 10) : 'nodraw';
+  const h = crypto.createHash('sha256').update(`${id}|${DRAW_SALT}|${dateKey}`).digest('hex');
+  return parseInt(h.slice(0, 8), 16) >>> 0;
+}
+
+async function deterministicWinner(client, campaignId) {
+  const cq = await client.query(`SELECT id, draw_date FROM public.campaigns WHERE id=$1`, [campaignId]);
+  if (!cq.rowCount) return null;
+  const drawDate = cq.rows[0].draw_date;
+  const seed = seedFromCampaign(campaignId, drawDate);
+
+  const r = await client.query(
+    `
+    WITH sold AS (
+      SELECT
+        t.id,
+        t.ticket_number,
+        p.user_id,
+        ROW_NUMBER() OVER (ORDER BY LPAD(t.ticket_number,12,'0')) AS rn,
+        COUNT(*) OVER() AS total
+      FROM public.tickets t
+      JOIN public.purchased_tickets pt ON pt.ticket_id = t.id
+      JOIN public.purchases p ON p.id = pt.purchase_id
+      WHERE t.campaign_id = $1
+        AND t.status = 'sold'
+        AND p.status = 'completed'
+    )
+    SELECT id, ticket_number, user_id, total
+    FROM sold
+    WHERE rn = ((($2 % GREATEST(total,1)) + 1))
+    `,
+    [campaignId, seed]
+  );
+  if (!r.rowCount) return null;
+  return r.rows[0];
+}
 
 async function autoExpireAndDraw() {
   await pool.query(`
@@ -22,25 +62,17 @@ async function autoExpireAndDraw() {
 
   for (const row of expiredNoWinner.rows) {
     const cid = row.id;
-    const win = await pool.query(
-      `
-      SELECT t.id AS ticket_id, p.user_id, t.ticket_number
-        FROM public.tickets t
-        JOIN public.purchased_tickets pt ON pt.ticket_id = t.id
-        JOIN public.purchases p ON p.id = pt.purchase_id
-       WHERE t.campaign_id = $1
-         AND t.status = 'sold'
-       ORDER BY random()
-       LIMIT 1
-      `,
-      [cid]
-    );
-    if (win.rowCount) {
-      const w = win.rows[0];
-      await pool.query(
-        `INSERT INTO public.winners (campaign_id, user_id, winning_ticket_id) VALUES ($1,$2,$3)`,
-        [cid, w.user_id, w.ticket_id]
-      );
+    const client = await pool.connect();
+    try {
+      const w = await deterministicWinner(client, cid);
+      if (w) {
+        await client.query(
+          `INSERT INTO public.winners (campaign_id, user_id, winning_ticket_id) VALUES ($1,$2,$3)`,
+          [cid, w.user_id, w.id]
+        );
+      }
+    } finally {
+      client.release();
     }
   }
 }

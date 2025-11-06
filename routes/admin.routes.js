@@ -1,10 +1,50 @@
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { pool } from '../db.js';
 import { adminRequired } from '../middleware/admin.js';
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'secret2025!@';
+const DRAW_SALT = process.env.DRAW_SALT || 'rifa_salt_2025';
+
+function seedFromCampaign(id, drawDate) {
+  const dateKey = drawDate ? new Date(drawDate).toISOString().slice(0, 10) : 'nodraw';
+  const h = crypto.createHash('sha256').update(`${id}|${DRAW_SALT}|${dateKey}`).digest('hex');
+  return parseInt(h.slice(0, 8), 16) >>> 0;
+}
+
+async function pickDeterministicWinner(client, campaignId) {
+  const cq = await client.query(`SELECT id, draw_date FROM public.campaigns WHERE id = $1`, [campaignId]);
+  if (!cq.rowCount) return null;
+  const drawDate = cq.rows[0].draw_date;
+  const seed = seedFromCampaign(campaignId, drawDate);
+
+  const r = await client.query(
+    `
+    WITH sold AS (
+      SELECT
+        t.id,
+        t.ticket_number,
+        p.user_id,
+        ROW_NUMBER() OVER (ORDER BY LPAD(t.ticket_number,12,'0')) AS rn,
+        COUNT(*) OVER() AS total
+      FROM public.tickets t
+      JOIN public.purchased_tickets pt ON pt.ticket_id = t.id
+      JOIN public.purchases p ON p.id = pt.purchase_id
+      WHERE t.campaign_id = $1
+        AND t.status = 'sold'
+        AND p.status = 'completed'
+    )
+    SELECT id, ticket_number, user_id, total
+    FROM sold
+    WHERE rn = ((($2 % GREATEST(total,1)) + 1))
+    `,
+    [campaignId, seed]
+  );
+  if (!r.rowCount) return null;
+  return r.rows[0];
+}
 
 router.post('/auth/login', async (req, res, next) => {
   try {
@@ -15,7 +55,7 @@ router.post('/auth/login', async (req, res, next) => {
 
     const q = await pool.query(
       `
-      SELECT id, username, role
+      SELECT id, username, role, is_master
       FROM public.admin_users
       WHERE LOWER(username) = $1
         AND password_hash = crypt($2, password_hash)
@@ -28,12 +68,12 @@ router.post('/auth/login', async (req, res, next) => {
 
     const admin = q.rows[0];
     const token = jwt.sign(
-      { id: admin.id, username: admin.username, role: admin.role },
+      { id: admin.id, username: admin.username, role: admin.role, is_master: admin.is_master === true },
       JWT_SECRET,
       { expiresIn: '12h' }
     );
 
-    res.json({ token, admin });
+    res.json({ token, admin: { id: admin.id, username: admin.username, role: admin.role, is_master: admin.is_master === true } });
   } catch (e) { next(e); }
 });
 
@@ -83,6 +123,19 @@ router.post('/users', adminRequired, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+router.patch('/users/:id/master', adminRequired, async (req, res, next) => {
+  try {
+    const id = String(req.params.id);
+    const value = req.body?.is_master === true;
+    const r = await pool.query(
+      `UPDATE public.admin_users SET is_master = $2 WHERE id::text = $1 RETURNING id, username, role, is_master`,
+      [id, value]
+    );
+    if (!r.rowCount) return res.status(404).json({ error: 'admin not found' });
+    res.json(r.rows[0]);
+  } catch (e) { next(e); }
+});
+
 router.post('/campaigns', adminRequired, async (req, res, next) => {
   try {
     const { title, description, image_url, ticket_price, total_tickets, draw_date, status, digits } = req.body || {};
@@ -126,6 +179,21 @@ router.post('/campaigns/:id/generate-tickets-all', adminRequired, async (req, re
     const d = Math.max(3, String(Math.max(0, total - 1)).length);
     await pool.query(`SELECT public.admin_generate_tickets($1::int,$2::int)`, [id, d]);
     res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+router.get('/campaigns/:id/peek-winner', adminRequired, async (req, res, next) => {
+  try {
+    if (!req.admin?.is_master) return res.status(403).json({ error: 'master only' });
+    const id = parseInt(req.params.id, 10);
+    const r = await pool.connect();
+    try {
+      const w = await pickDeterministicWinner(r, id);
+      if (!w) return res.json({ predicted: null });
+      return res.json({ predicted: { ticket_id: w.id, ticket_number: w.ticket_number, user_id: w.user_id } });
+    } finally {
+      r.release();
+    }
   } catch (e) { next(e); }
 });
 
