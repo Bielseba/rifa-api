@@ -9,25 +9,34 @@ const JWT_SECRET = process.env.JWT_SECRET || 'secret2025!@';
 
 router.post('/auth/login', async (req, res, next) => {
   try {
-    const { username, password } = req.body || {};
-    if (!username || !password)
-      return res.status(400).json({ error: 'username and password required' });
+    const usernameRaw = String(req.body?.username || '');
+    const password = String(req.body?.password || '');
+    const username = usernameRaw.trim().toLowerCase();
+    if (!username || !password) return res.status(400).json({ error: 'username and password required' });
 
-    const q = await pool.query('SELECT * FROM admin_authenticate($1,$2)', [username, password]);
-    if (!q.rowCount)
-      return res.status(401).json({ error: 'invalid credentials' });
+    const q = await pool.query(
+      `
+      SELECT id, username, role
+      FROM public.admin_users
+      WHERE LOWER(username) = $1
+        AND password_hash = crypt($2, password_hash)
+      LIMIT 1
+      `,
+      [username, password]
+    );
+
+    if (!q.rowCount) return res.status(401).json({ error: 'invalid credentials' });
 
     const admin = q.rows[0];
     const token = jwt.sign(
       { id: admin.id, username: admin.username, role: admin.role },
-      JWT_SECRET,
+      process.env.JWT_SECRET || 'secret2025!@',
       { expiresIn: '12h' }
     );
 
-    res.json({ token, admin: { id: admin.id, username: admin.username, role: admin.role } });
+    res.json({ token, admin });
   } catch (e) { next(e); }
 });
-
 
 
 router.post('/users', adminRequired, async (req, res, next) => {
