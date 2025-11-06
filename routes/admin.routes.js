@@ -4,7 +4,7 @@ import { pool } from '../db.js';
 import { adminRequired } from '../middleware/admin.js';
 
 const router = Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'secret2025@';
+const JWT_SECRET = process.env.JWT_SECRET || 'secret2025!@';
 
 
 router.post('/auth/login', async (req, res, next) => {
