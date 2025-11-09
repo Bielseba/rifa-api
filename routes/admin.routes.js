@@ -376,79 +376,7 @@ router.get('/campaigns/:id/sales', adminRequired, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/* Roleta: Admin CRUD e RTP */
-router.get('/roulette/prizes', adminRequired, async (req, res, next) => {
-  try {
-    const r = await pool.query(
-      `SELECT id, category, description, label, amount, active, created_at, updated_at
-       FROM public.roulette_prizes
-       ORDER BY id DESC`
-    );
-    res.json(r.rows);
-  } catch (e) { next(e); }
-});
-
-router.post('/roulette/prizes', adminRequired, async (req, res, next) => {
-  try {
-    const { category, description, value, active } = req.body || {};
-    const cat = category === 'outro' ? 'outro' : 'dinheiro';
-    const label = String(description || '').trim();
-    const amount = cat === 'dinheiro' ? Number(value || 0) : 0;
-    const act = typeof active === 'boolean' ? active : true;
-
-    const r = await pool.query(
-      `INSERT INTO public.roulette_prizes (category, description, label, amount, active)
-       VALUES ($1,$2,$3,$4,$5)
-       RETURNING id, category, description, label, amount, active, created_at, updated_at`,
-      [cat, label, label, amount, act]
-    );
-    res.status(201).json(r.rows[0]);
-  } catch (e) { next(e); }
-});
-
-router.patch('/roulette/prizes/:id', adminRequired, async (req, res, next) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    const { category, description, value, active } = req.body || {};
-    const cat = category === 'outro' ? 'outro' : (category === 'dinheiro' ? 'dinheiro' : null);
-    const label = typeof description === 'string' ? description.trim() : null;
-    const amount = (cat ?? null) === 'dinheiro'
-      ? (Number.isFinite(Number(value)) ? Number(value) : null)
-      : 0;
-
-    const r = await pool.query(
-      `UPDATE public.roulette_prizes
-          SET category = COALESCE($2, category),
-              description = COALESCE($3, description),
-              label = COALESCE($3, label),
-              amount = COALESCE($4, amount),
-              active = COALESCE($5, active),
-              updated_at = NOW()
-        WHERE id = $1
-        RETURNING id, category, description, label, amount, active, created_at, updated_at`,
-      [id, cat, label, amount, typeof active === 'boolean' ? active : null]
-    );
-
-    if (!r.rowCount) return res.status(404).json({ error: 'prize not found' });
-    res.json(r.rows[0]);
-  } catch (e) { next(e); }
-});
-
-router.delete('/roulette/prizes/:id', adminRequired, async (req, res, next) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    const r = await pool.query(`DELETE FROM public.roulette_prizes WHERE id = $1 RETURNING id`, [id]);
-    if (!r.rowCount) return res.status(404).json({ error: 'not found' });
-    res.status(204).end();
-  } catch (e) { next(e); }
-});
-
-router.get('/roulette/settings', adminRequired, async (req, res, next) => {
-  try {
-    const r = await pool.query(`SELECT id, rtp_percent FROM public.roulette_settings WHERE id = 1`);
-    res.json(r.rows[0] || { id: 1, rtp_percent: 0 });
-  } catch (e) { next(e); }
-});
+router.get('/stats/overview', adminRequired, async (req, res, next) => {
   try {
     const r = await pool.query(
       `
@@ -483,7 +411,78 @@ router.get('/roulette/settings', adminRequired, async (req, res, next) => {
     );
     res.json(r.rows[0] || {});
   } catch (e) { next(e); }
-  
+});
+
+router.get('/roulette/prizes', adminRequired, async (req, res, next) => {
+  try {
+    const r = await pool.query(
+      `SELECT id, category, description, label, amount, active, created_at, updated_at
+       FROM public.roulette_prizes
+       ORDER BY id DESC`
+    );
+    res.json(r.rows);
+  } catch (e) { next(e); }
+});
+
+router.post('/roulette/prizes', adminRequired, async (req, res, next) => {
+  try {
+    const { category, description, value, active } = req.body || {};
+    const cat = category === 'outro' ? 'outro' : 'dinheiro';
+    const label = String(description || '').trim();
+    const amount = cat === 'dinheiro' ? Number(value || 0) : 0;
+    const act = typeof active === 'boolean' ? active : true;
+    const r = await pool.query(
+      `INSERT INTO public.roulette_prizes (category, description, label, amount, active)
+       VALUES ($1,$2,$3,$4,$5)
+       RETURNING id, category, description, label, amount, active, created_at, updated_at`,
+      [cat, label, label, amount, act]
+    );
+    res.status(201).json(r.rows[0]);
+  } catch (e) { next(e); }
+});
+
+router.patch('/roulette/prizes/:id', adminRequired, async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { category, description, value, active } = req.body || {};
+    const cat = category === 'outro' ? 'outro' : (category === 'dinheiro' ? 'dinheiro' : null);
+    const label = typeof description === 'string' ? description.trim() : null;
+    const amount = (cat ?? null) === 'dinheiro'
+      ? (Number.isFinite(Number(value)) ? Number(value) : null)
+      : 0;
+    const r = await pool.query(
+      `UPDATE public.roulette_prizes
+          SET category = COALESCE($2, category),
+              description = COALESCE($3, description),
+              label = COALESCE($3, label),
+              amount = COALESCE($4, amount),
+              active = COALESCE($5, active),
+              updated_at = NOW()
+        WHERE id = $1
+        RETURNING id, category, description, label, amount, active, created_at, updated_at`,
+      [id, cat, label, amount, typeof active === 'boolean' ? active : null]
+    );
+    if (!r.rowCount) return res.status(404).json({ error: 'prize not found' });
+    res.json(r.rows[0]);
+  } catch (e) { next(e); }
+});
+
+router.delete('/roulette/prizes/:id', adminRequired, async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const r = await pool.query(`DELETE FROM public.roulette_prizes WHERE id = $1 RETURNING id`, [id]);
+    if (!r.rowCount) return res.status(404).json({ error: 'not found' });
+    res.status(204).end();
+  } catch (e) { next(e); }
+});
+
+router.get('/roulette/settings', adminRequired, async (req, res, next) => {
+  try {
+    const r = await pool.query(`SELECT id, rtp_percent FROM public.roulette_settings WHERE id = 1`);
+    res.json(r.rows[0] || { id: 1, rtp_percent: 0 });
+  } catch (e) { next(e); }
+});
+
 router.patch('/roulette/settings', adminRequired, async (req, res, next) => {
   try {
     let rtp = Number(req.body?.rtp_percent ?? 0);
