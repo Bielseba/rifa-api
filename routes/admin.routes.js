@@ -376,64 +376,32 @@ router.get('/campaigns/:id/sales', adminRequired, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.get('/stats/overview', adminRequired, async (req, res, next) => {
-  try {
-    const r = await pool.query(
-      `
-      WITH c AS (
-        SELECT
-          COUNT(*)::int AS campaigns_count,
-          COALESCE(SUM(total_tickets),0)::int AS total_tickets_planned,
-          COALESCE(SUM((ticket_price::numeric) * (total_tickets::numeric)),0)::numeric AS gross_potential
-        FROM public.campaigns
-        WHERE status <> 'deleted'
-      ),
-      t AS (
-        SELECT
-          COUNT(*)::int AS tickets_total,
-          COUNT(*) FILTER (WHERE status='sold')::int AS tickets_sold,
-          COUNT(*) FILTER (WHERE status='reserved')::int AS tickets_reserved,
-          COUNT(*) FILTER (WHERE status='available')::int AS tickets_available
-        FROM public.tickets
-      ),
-      p AS (
-        SELECT
-          COALESCE(SUM(total_amount),0)::numeric AS revenue_total,
-          COUNT(*) FILTER (WHERE status='completed')::int AS purchases_completed
-        FROM public.purchases
-        WHERE status='completed'
-      )
-      SELECT c.campaigns_count, c.total_tickets_planned, c.gross_potential,
-             t.tickets_total, t.tickets_sold, t.tickets_reserved, t.tickets_available,
-             p.revenue_total, p.purchases_completed
-      FROM c, t, p
-      `
-    );
-    res.json(r.rows[0] || {});
-  } catch (e) { next(e); }
-});
-
 /* Roleta: Admin CRUD e RTP */
 router.get('/roulette/prizes', adminRequired, async (req, res, next) => {
   try {
-    const r = await pool.query(`SELECT id, category, description, amount, active, created_at FROM public.roulette_prizes ORDER BY id DESC`);
+    const r = await pool.query(
+      `SELECT id, category, description, label, amount, active, created_at, updated_at
+       FROM public.roulette_prizes
+       ORDER BY id DESC`
+    );
     res.json(r.rows);
   } catch (e) { next(e); }
 });
 
 router.post('/roulette/prizes', adminRequired, async (req, res, next) => {
   try {
-    const { category, description, value, weight, active } = req.body;
+    const { category, description, value, active } = req.body || {};
     const cat = category === 'outro' ? 'outro' : 'dinheiro';
+    const label = String(description || '').trim();
     const amount = cat === 'dinheiro' ? Number(value || 0) : 0;
+    const act = typeof active === 'boolean' ? active : true;
 
     const r = await pool.query(
-      `INSERT INTO public.roulette_prizes (category, description, label, amount, weight, active)
-       VALUES ($1, $2, $3, $4, $5, COALESCE($6, true))
-       RETURNING id, category, description, label, amount, weight, active, created_at, updated_at`,
-      [cat, description || '', description || '', amount, weight || 1, active]
+      `INSERT INTO public.roulette_prizes (category, description, label, amount, active)
+       VALUES ($1,$2,$3,$4,$5)
+       RETURNING id, category, description, label, amount, active, created_at, updated_at`,
+      [cat, label, label, amount, act]
     );
-
     res.status(201).json(r.rows[0]);
   } catch (e) { next(e); }
 });
@@ -441,22 +409,24 @@ router.post('/roulette/prizes', adminRequired, async (req, res, next) => {
 router.patch('/roulette/prizes/:id', adminRequired, async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const { category, description, value, weight, active } = req.body;
-    const cat = category === 'outro' ? 'outro' : 'dinheiro';
-    const amount = cat === 'dinheiro' ? Number(value || 0) : 0;
+    const { category, description, value, active } = req.body || {};
+    const cat = category === 'outro' ? 'outro' : (category === 'dinheiro' ? 'dinheiro' : null);
+    const label = typeof description === 'string' ? description.trim() : null;
+    const amount = (cat ?? null) === 'dinheiro'
+      ? (Number.isFinite(Number(value)) ? Number(value) : null)
+      : 0;
 
     const r = await pool.query(
       `UPDATE public.roulette_prizes
-          SET category=$2,
-              description=$3,
-              label=$3,
-              amount=$4,
-              weight=COALESCE($5, weight),
-              active=COALESCE($6, active),
-              updated_at=NOW()
-        WHERE id=$1
-        RETURNING id, category, description, label, amount, weight, active, created_at, updated_at`,
-      [id, cat, description || '', amount, weight, active]
+          SET category = COALESCE($2, category),
+              description = COALESCE($3, description),
+              label = COALESCE($3, label),
+              amount = COALESCE($4, amount),
+              active = COALESCE($5, active),
+              updated_at = NOW()
+        WHERE id = $1
+        RETURNING id, category, description, label, amount, active, created_at, updated_at`,
+      [id, cat, label, amount, typeof active === 'boolean' ? active : null]
     );
 
     if (!r.rowCount) return res.status(404).json({ error: 'prize not found' });
@@ -475,21 +445,22 @@ router.delete('/roulette/prizes/:id', adminRequired, async (req, res, next) => {
 
 router.get('/roulette/settings', adminRequired, async (req, res, next) => {
   try {
-    const r = await pool.query(`SELECT id, rtp FROM public.roulette_settings WHERE id = 1`);
-    res.json(r.rows[0] || { id: 1, rtp: 0 });
+    const r = await pool.query(`SELECT id, rtp_percent FROM public.roulette_settings WHERE id = 1`);
+    res.json(r.rows[0] || { id: 1, rtp_percent: 0 });
   } catch (e) { next(e); }
 });
 
 router.patch('/roulette/settings', adminRequired, async (req, res, next) => {
   try {
-    let rtp = parseInt(req.body?.rtp ?? '0', 10);
+    let rtp = Number(req.body?.rtp_percent ?? 0);
     if (!Number.isFinite(rtp)) rtp = 0;
     if (rtp < 0) rtp = 0;
     if (rtp > 100) rtp = 100;
     const r = await pool.query(
-      `INSERT INTO public.roulette_settings(id, rtp) VALUES (1,$1)
-       ON CONFLICT (id) DO UPDATE SET rtp = EXCLUDED.rtp
-       RETURNING id, rtp`,
+      `INSERT INTO public.roulette_settings (id, rtp_percent)
+       VALUES (1, $1)
+       ON CONFLICT (id) DO UPDATE SET rtp_percent = EXCLUDED.rtp_percent, updated_at = now()
+       RETURNING id, rtp_percent`,
       [rtp]
     );
     res.json(r.rows[0]);
