@@ -12,7 +12,6 @@ function cryptoRandom(maxExclusive) {
   return n % maxExclusive;
 }
 
-/** Descobre dinamicamente o tipo da coluna public.roulette_spins_plays.user_id */
 async function detectRouletteUserIdType(client) {
   const q = await client.query(`
     SELECT atttypid::regtype::text AS typ
@@ -23,19 +22,15 @@ async function detectRouletteUserIdType(client) {
     LIMIT 1
   `);
   const typ = q.rows[0]?.typ || 'uuid';
-  return typ; // 'uuid' ou 'integer' (ou 'bigint' se for o caso)
+  return typ;
 }
 
-/** Converte o req.user.id em um valor coerente com a coluna alvo */
 function coerceUserIdForType(userId, targetType) {
   if (targetType === 'uuid') {
-    // garante string
     return String(userId);
   }
-  // assume integer/bigint
   const n = Number(userId);
   if (!Number.isFinite(n)) {
-    // fallback: tenta extrair dígitos
     const onlyDigits = String(userId).replace(/\D+/g, '');
     return Number(onlyDigits || 0);
   }
@@ -167,7 +162,6 @@ router.get('/roulette/status', authRequired, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/* Inserção adaptativa (UUID ou INT) */
 async function insertSpinLose(userId) {
   const client = await pool.connect();
   try {
