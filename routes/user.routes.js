@@ -214,9 +214,9 @@ router.post('/roulette/spin', authRequired, async (req, res, next) => {
     const rtp = Number(s.rows[0]?.rtp_percent || 0);
 
     const prizesQ = await pool.query(`
-      SELECT id, label, amount::numeric, weight
+      SELECT id, label, amount::numeric
       FROM public.roulette_prizes
-      WHERE active = true AND weight > 0
+      WHERE active = true
       ORDER BY id ASC
     `);
     const prizes = prizesQ.rows;
@@ -229,15 +229,8 @@ router.post('/roulette/spin', authRequired, async (req, res, next) => {
       return res.json({ outcome: 'lose', spin_id: row.id, created_at: row.created_at });
     }
 
-    let totalWeight = 0;
-    for (const p of prizes) totalWeight += Number(p.weight);
-    const pick = cryptoRandom(totalWeight);
-    let acc = 0;
-    let chosen = prizes[0];
-    for (const p of prizes) {
-      acc += Number(p.weight);
-      if (pick < acc) { chosen = p; break; }
-    }
+    const idx = cryptoRandom(prizes.length);
+    const chosen = prizes[idx];
 
     const chosenId = Number(chosen.id);
     const chosenAmount = Number(chosen.amount);
