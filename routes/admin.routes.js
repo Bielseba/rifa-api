@@ -449,7 +449,41 @@ router.get('/roulette/settings', adminRequired, async (req, res, next) => {
     res.json(r.rows[0] || { id: 1, rtp_percent: 0 });
   } catch (e) { next(e); }
 });
-
+  try {
+    const r = await pool.query(
+      `
+      WITH c AS (
+        SELECT
+          COUNT(*)::int AS campaigns_count,
+          COALESCE(SUM(total_tickets),0)::int AS total_tickets_planned,
+          COALESCE(SUM((ticket_price::numeric) * (total_tickets::numeric)),0)::numeric AS gross_potential
+        FROM public.campaigns
+        WHERE status <> 'deleted'
+      ),
+      t AS (
+        SELECT
+          COUNT(*)::int AS tickets_total,
+          COUNT(*) FILTER (WHERE status='sold')::int AS tickets_sold,
+          COUNT(*) FILTER (WHERE status='reserved')::int AS tickets_reserved,
+          COUNT(*) FILTER (WHERE status='available')::int AS tickets_available
+        FROM public.tickets
+      ),
+      p AS (
+        SELECT
+          COALESCE(SUM(total_amount),0)::numeric AS revenue_total,
+          COUNT(*) FILTER (WHERE status='completed')::int AS purchases_completed
+        FROM public.purchases
+        WHERE status='completed'
+      )
+      SELECT c.campaigns_count, c.total_tickets_planned, c.gross_potential,
+             t.tickets_total, t.tickets_sold, t.tickets_reserved, t.tickets_available,
+             p.revenue_total, p.purchases_completed
+      FROM c, t, p
+      `
+    );
+    res.json(r.rows[0] || {});
+  } catch (e) { next(e); }
+  
 router.patch('/roulette/settings', adminRequired, async (req, res, next) => {
   try {
     let rtp = Number(req.body?.rtp_percent ?? 0);
