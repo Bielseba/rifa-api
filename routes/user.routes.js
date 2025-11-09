@@ -147,18 +147,21 @@ router.post('/roulette/spin', authRequired, async (req, res, next) => {
       if (pick < acc) { chosen = p; break; }
     }
 
+    const chosenId = Number(chosen.id);
+    const chosenAmount = Number(chosen.amount);
+
     const ins = await pool.query(
       `INSERT INTO public.roulette_spins_plays (user_id, prize_id, amount, outcome)
        VALUES ($1,$2,$3,'win')
        RETURNING id, created_at`,
-      [req.user.id, chosen.id, chosen.amount,]
+      [req.user.id, chosenId, chosenAmount]
     );
 
     res.json({
       outcome: 'win',
       spin_id: ins.rows[0].id,
       created_at: ins.rows[0].created_at,
-      prize: { id: chosen.id, label: chosen.label, amount: Number(chosen.amount) }
+      prize: { id: chosenId, label: chosen.label, amount: Number(chosenAmount) }
     });
   } catch (e) { next(e); }
 });
