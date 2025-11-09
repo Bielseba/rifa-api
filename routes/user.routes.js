@@ -12,31 +12,6 @@ function cryptoRandom(maxExclusive) {
   return n % maxExclusive;
 }
 
-async function detectRouletteUserIdType(client) {
-  const q = await client.query(`
-    SELECT atttypid::regtype::text AS typ
-    FROM pg_attribute
-    WHERE attrelid = 'public.roulette_spins_plays'::regclass
-      AND attname  = 'user_id'
-      AND NOT attisdropped
-    LIMIT 1
-  `);
-  const typ = q.rows[0]?.typ || 'uuid';
-  return typ;
-}
-
-function coerceUserIdForType(userId, targetType) {
-  if (targetType === 'uuid') {
-    return String(userId);
-  }
-  const n = Number(userId);
-  if (!Number.isFinite(n)) {
-    const onlyDigits = String(userId).replace(/\D+/g, '');
-    return Number(onlyDigits || 0);
-  }
-  return n;
-}
-
 router.get('/profile', authRequired, async (req, res, next) => {
   try {
     const u = await pool.query(
@@ -163,56 +138,48 @@ router.get('/roulette/status', authRequired, async (req, res, next) => {
 });
 
 async function insertSpinLose(userId) {
-  const client = await pool.connect();
   try {
-    const typ = await detectRouletteUserIdType(client);
-    const coerced = coerceUserIdForType(userId, typ);
-
-    let sql;
-    if (typ === 'uuid') {
-      sql = `
-        INSERT INTO public.roulette_spins_plays (user_id, outcome)
-        VALUES ($1::uuid, 'lose')
-        RETURNING id, created_at
-      `;
-    } else {
-      sql = `
-        INSERT INTO public.roulette_spins_plays (user_id, outcome)
-        VALUES ($1::int, 'lose')
-        RETURNING id, created_at
-      `;
-    }
-    const ins = await client.query(sql, [coerced]);
+    const ins = await pool.query(
+      `INSERT INTO public.roulette_spins_plays (user_id, outcome)
+       VALUES ($1::uuid,'lose')
+       RETURNING id, created_at`,
+      [String(userId)]
+    );
     return ins.rows[0];
-  } finally {
-    client.release();
+  } catch (err) {
+    if (String(err.message).includes('invalid input syntax for type uuid')) {
+      const ins2 = await pool.query(
+        `INSERT INTO public.roulette_spins_plays (user_id, outcome)
+         VALUES ($1::int,'lose')
+         RETURNING id, created_at`,
+        [Number(userId)]
+      );
+      return ins2.rows[0];
+    }
+    throw err;
   }
 }
 
 async function insertSpinWin(userId, prizeId, amount) {
-  const client = await pool.connect();
   try {
-    const typ = await detectRouletteUserIdType(client);
-    const coerced = coerceUserIdForType(userId, typ);
-
-    let sql;
-    if (typ === 'uuid') {
-      sql = `
-        INSERT INTO public.roulette_spins_plays (user_id, prize_id, amount, outcome)
-        VALUES ($1::uuid, $2::int, $3::numeric, 'win')
-        RETURNING id, created_at
-      `;
-    } else {
-      sql = `
-        INSERT INTO public.roulette_spins_plays (user_id, prize_id, amount, outcome)
-        VALUES ($1::int, $2::int, $3::numeric, 'win')
-        RETURNING id, created_at
-      `;
-    }
-    const ins = await client.query(sql, [coerced, Number(prizeId), Number(amount)]);
+    const ins = await pool.query(
+      `INSERT INTO public.roulette_spins_plays (user_id, prize_id, amount, outcome)
+       VALUES ($1::uuid,$2::int,$3::numeric,'win')
+       RETURNING id, created_at`,
+      [String(userId), Number(prizeId), Number(amount)]
+    );
     return ins.rows[0];
-  } finally {
-    client.release();
+  } catch (err) {
+    if (String(err.message).includes('invalid input syntax for type uuid')) {
+      const ins2 = await pool.query(
+        `INSERT INTO public.roulette_spins_plays (user_id, prize_id, amount, outcome)
+         VALUES ($1::int,$2::int,$3::numeric,'win')
+         RETURNING id, created_at`,
+        [Number(userId), Number(prizeId), Number(amount)]
+      );
+      return ins2.rows[0];
+    }
+    throw err;
   }
 }
 
@@ -243,8 +210,8 @@ router.post('/roulette/spin', authRequired, async (req, res, next) => {
     const available = parseInt(a.rows[0]?.available || 0, 10);
     if (available <= 0) return res.status(403).json({ error: 'no spins available' });
 
-    const s = await pool.query(`SELECT rtp_percent FROM public.roulette_settings WHERE id=1`);
-    const rtp = Number(s.rows[0]?.rtp_percent || 0);
+    const s = await pool.query(`SELECT rtp FROM public.roulette_settings WHERE id=1`);
+    const rtp = Number(s.rows[0]?.rtp ?? 0);
 
     const prizesQ = await pool.query(`
       SELECT id, label, amount::numeric
@@ -262,8 +229,8 @@ router.post('/roulette/spin', authRequired, async (req, res, next) => {
       return res.json({ outcome: 'lose', spin_id: row.id, created_at: row.created_at });
     }
 
-    const idx = cryptoRandom(prizes.length);
-    const chosen = prizes[idx];
+    const pick = cryptoRandom(prizes.length);
+    const chosen = prizes[pick];
 
     const chosenId = Number(chosen.id);
     const chosenAmount = Number(chosen.amount);
