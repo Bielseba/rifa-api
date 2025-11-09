@@ -137,50 +137,24 @@ router.get('/roulette/status', authRequired, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-async function insertSpinLose(userId) {
-  try {
-    const ins = await pool.query(
-      `INSERT INTO public.roulette_spins_plays (user_id, outcome)
-       VALUES ($1::uuid,'lose')
-       RETURNING id, created_at`,
-      [String(userId)]
-    );
-    return ins.rows[0];
-  } catch (err) {
-    if (String(err.message).includes('invalid input syntax for type uuid')) {
-      const ins2 = await pool.query(
-        `INSERT INTO public.roulette_spins_plays (user_id, outcome)
-         VALUES ($1::int,'lose')
-         RETURNING id, created_at`,
-        [Number(userId)]
-      );
-      return ins2.rows[0];
-    }
-    throw err;
-  }
+async function insertSpinLose(userIdTxt) {
+  const ins = await pool.query(
+    `INSERT INTO public.roulette_spins_plays (user_id, outcome)
+     VALUES ($1::text,'lose')
+     RETURNING id, created_at`,
+    [userIdTxt]
+  );
+  return ins.rows[0];
 }
 
-async function insertSpinWin(userId, prizeId, amount) {
-  try {
-    const ins = await pool.query(
-      `INSERT INTO public.roulette_spins_plays (user_id, prize_id, amount, outcome)
-       VALUES ($1::uuid,$2::int,$3::numeric,'win')
-       RETURNING id, created_at`,
-      [String(userId), Number(prizeId), Number(amount)]
-    );
-    return ins.rows[0];
-  } catch (err) {
-    if (String(err.message).includes('invalid input syntax for type uuid')) {
-      const ins2 = await pool.query(
-        `INSERT INTO public.roulette_spins_plays (user_id, prize_id, amount, outcome)
-         VALUES ($1::int,$2::int,$3::numeric,'win')
-         RETURNING id, created_at`,
-        [Number(userId), Number(prizeId), Number(amount)]
-      );
-      return ins2.rows[0];
-    }
-    throw err;
-  }
+async function insertSpinWin(userIdTxt, prizeId, amount) {
+  const ins = await pool.query(
+    `INSERT INTO public.roulette_spins_plays (user_id, prize_id, amount, outcome)
+     VALUES ($1::text,$2::int,$3::numeric,'win')
+     RETURNING id, created_at`,
+    [userIdTxt, Number(prizeId), Number(amount)]
+  );
+  return ins.rows[0];
 }
 
 router.post('/roulette/spin', authRequired, async (req, res, next) => {
