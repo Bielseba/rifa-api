@@ -210,13 +210,13 @@ router.post('/roulette/spin', authRequired, async (req, res, next) => {
     const available = parseInt(a.rows[0]?.available || 0, 10);
     if (available <= 0) return res.status(403).json({ error: 'no spins available' });
 
-    const s = await pool.query(`SELECT rtp FROM public.roulette_settings WHERE id=1`);
-    const rtp = Number(s.rows[0]?.rtp || 0);
+    const s = await pool.query(`SELECT rtp_percent FROM public.roulette_settings WHERE id=1`);
+    const rtp = Number(s.rows[0]?.rtp_percent || 0);
 
     const prizesQ = await pool.query(`
-      SELECT id, label, amount::numeric
+      SELECT id, label, amount::numeric, weight
       FROM public.roulette_prizes
-      WHERE active = true
+      WHERE active = true AND weight > 0
       ORDER BY id ASC
     `);
     const prizes = prizesQ.rows;
@@ -229,8 +229,15 @@ router.post('/roulette/spin', authRequired, async (req, res, next) => {
       return res.json({ outcome: 'lose', spin_id: row.id, created_at: row.created_at });
     }
 
-    const idx = cryptoRandom(prizes.length);
-    const chosen = prizes[idx];
+    let totalWeight = 0;
+    for (const p of prizes) totalWeight += Number(p.weight);
+    const pick = cryptoRandom(totalWeight);
+    let acc = 0;
+    let chosen = prizes[0];
+    for (const p of prizes) {
+      acc += Number(p.weight);
+      if (pick < acc) { chosen = p; break; }
+    }
 
     const chosenId = Number(chosen.id);
     const chosenAmount = Number(chosen.amount);
