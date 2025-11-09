@@ -5,6 +5,10 @@ import { authRequired } from '../middleware/auth.js';
 
 const router = Router();
 
+function isUUID(v) {
+  return typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+}
+
 router.post('/', authRequired, async (req, res, next) => {
   try {
     const { campaignId, selectedNumbers } = req.body;
@@ -105,11 +109,21 @@ router.post('/', authRequired, async (req, res, next) => {
         );
       }
 
-      const g = await client.query(
-        `SELECT public.roulette_grant_spins_threshold($1::uuid,$2::int) AS granted`,
-        [req.user.id, purchase.id]
-      );
-      const grantedSpins = parseInt(g.rows[0]?.granted || 0, 10);
+      let grantedSpins = 0;
+      const userId = req.user.id;
+      if (isUUID(userId)) {
+        const g = await client.query(
+          `SELECT public.roulette_grant_spins_threshold($1::uuid,$2::int) AS granted`,
+          [String(userId), purchase.id]
+        );
+        grantedSpins = parseInt(g.rows[0]?.granted || 0, 10);
+      } else {
+        const g = await client.query(
+          `SELECT public.roulette_grant_spins_threshold($1::int,$2::int) AS granted`,
+          [Number(userId), purchase.id]
+        );
+        grantedSpins = parseInt(g.rows[0]?.granted || 0, 10);
+      }
 
       return {
         message: 'purchase completed successfully',
