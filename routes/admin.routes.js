@@ -421,7 +421,7 @@ router.get('/roulette/prizes', adminRequired, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-rrouter.post('/roulette/prizes', adminRequired, async (req, res, next) => {
+router.post('/roulette/prizes', adminRequired, async (req, res, next) => {
   try {
     const { category, description, value, weight, active } = req.body;
     const cat = category === 'outro' ? 'outro' : 'dinheiro';
