@@ -36,10 +36,10 @@ router.get('/my-titles', authRequired, async (req, res, next) => {
       JOIN public.purchased_tickets pt ON pt.purchase_id = p.id
       JOIN public.tickets t           ON t.id = pt.ticket_id
       JOIN public.campaigns c         ON c.id = p.campaign_id
-      WHERE p.user_id = $1
+      WHERE p.user_id::text = $1::text
         AND p.status  = 'completed'
       ORDER BY p.purchase_date DESC, c.title, t.ticket_number
-    `, [req.user.id]);
+    `, [String(req.user.id)]);
 
     const map = new Map();
     for (const r of q.rows) {
@@ -80,11 +80,11 @@ router.get('/my-titles/search', authRequired, async (req, res, next) => {
       JOIN public.purchased_tickets pt ON pt.purchase_id = p.id
       JOIN public.tickets t           ON t.id = pt.ticket_id
       JOIN public.campaigns c         ON c.id = p.campaign_id
-      WHERE p.user_id = $1
+      WHERE p.user_id::text = $1::text
         AND p.status  = 'completed'
         AND c.title ILIKE $2
       ORDER BY p.purchase_date DESC, c.title, t.ticket_number
-    `, [req.user.id, `%${qstr}%`]);
+    `, [String(req.user.id), `%${qstr}%`]);
 
     res.json(q.rows.map(row => ({
       campaignId: row.campaign_id,
@@ -97,46 +97,136 @@ router.get('/my-titles/search', authRequired, async (req, res, next) => {
 
 router.get('/roulette/status', authRequired, async (req, res, next) => {
   try {
-    const a = await pool.query(`SELECT public.roulette_available_spins($1) AS available`, [req.user.id]);
+    const userIdTxt = String(req.user.id);
+
+    const a = await pool.query(`
+      WITH spent AS (
+        SELECT COALESCE(SUM(total_amount),0)::numeric AS total_spent
+        FROM public.purchases
+        WHERE user_id::text = $1::text
+          AND status = 'completed'
+      ),
+      earned AS (
+        SELECT (FLOOR((spent.total_spent / 200)))::int * 10 AS spins_earned
+        FROM spent
+      ),
+      used AS (
+        SELECT COUNT(*)::int AS spins_used
+        FROM public.roulette_spins_plays
+        WHERE user_id::text = $1::text
+      )
+      SELECT GREATEST(e.spins_earned - u.spins_used, 0) AS available
+      FROM earned e, used u
+    `, [userIdTxt]);
+
     const available = parseInt(a.rows[0]?.available || 0, 10);
+
     const last = await pool.query(
       `
       SELECT sp.id, sp.prize_id, sp.amount::numeric, sp.outcome, sp.created_at, rp.label
       FROM public.roulette_spins_plays sp
       LEFT JOIN public.roulette_prizes rp ON rp.id = sp.prize_id
-      WHERE sp.user_id = $1
+      WHERE sp.user_id::text = $1::text
       ORDER BY sp.id DESC
       LIMIT 20
       `,
-      [req.user.id]
+      [userIdTxt]
     );
+
     res.json({ available_spins: available, history: last.rows });
   } catch (e) { next(e); }
 });
 
+async function insertSpinLose(userId) {
+  try {
+    const ins = await pool.query(
+      `INSERT INTO public.roulette_spins_plays (user_id, outcome)
+       VALUES ($1::uuid,'lose')
+       RETURNING id, created_at`,
+      [String(userId)]
+    );
+    return ins.rows[0];
+  } catch (err) {
+    if (String(err.message).includes('invalid input syntax for type uuid')) {
+      const ins2 = await pool.query(
+        `INSERT INTO public.roulette_spins_plays (user_id, outcome)
+         VALUES ($1::int,'lose')
+         RETURNING id, created_at`,
+        [Number(userId)]
+      );
+      return ins2.rows[0];
+    }
+    throw err;
+  }
+}
+
+async function insertSpinWin(userId, prizeId, amount) {
+  try {
+    const ins = await pool.query(
+      `INSERT INTO public.roulette_spins_plays (user_id, prize_id, amount, outcome)
+       VALUES ($1::uuid,$2::int,$3::numeric,'win')
+       RETURNING id, created_at`,
+      [String(userId), Number(prizeId), Number(amount)]
+    );
+    return ins.rows[0];
+  } catch (err) {
+    if (String(err.message).includes('invalid input syntax for type uuid')) {
+      const ins2 = await pool.query(
+        `INSERT INTO public.roulette_spins_plays (user_id, prize_id, amount, outcome)
+         VALUES ($1::int,$2::int,$3::numeric,'win')
+         RETURNING id, created_at`,
+        [Number(userId), Number(prizeId), Number(amount)]
+      );
+      return ins2.rows[0];
+    }
+    throw err;
+  }
+}
+
 router.post('/roulette/spin', authRequired, async (req, res, next) => {
   try {
-    const av = await pool.query(`SELECT public.roulette_available_spins($1) AS available`, [req.user.id]);
-    const available = parseInt(av.rows[0]?.available || 0, 10);
+    const userIdTxt = String(req.user.id);
+
+    const a = await pool.query(`
+      WITH spent AS (
+        SELECT COALESCE(SUM(total_amount),0)::numeric AS total_spent
+        FROM public.purchases
+        WHERE user_id::text = $1::text
+          AND status = 'completed'
+      ),
+      earned AS (
+        SELECT (FLOOR((spent.total_spent / 200)))::int * 10 AS spins_earned
+        FROM spent
+      ),
+      used AS (
+        SELECT COUNT(*)::int AS spins_used
+        FROM public.roulette_spins_plays
+        WHERE user_id::text = $1::text
+      )
+      SELECT GREATEST(e.spins_earned - u.spins_used, 0) AS available
+      FROM earned e, used u
+    `, [userIdTxt]);
+
+    const available = parseInt(a.rows[0]?.available || 0, 10);
     if (available <= 0) return res.status(403).json({ error: 'no spins available' });
 
     const s = await pool.query(`SELECT rtp_percent FROM public.roulette_settings WHERE id=1`);
     const rtp = Number(s.rows[0]?.rtp_percent || 0);
 
-    const prizesQ = await pool.query(`SELECT id, label, amount::numeric, weight FROM public.roulette_prizes WHERE active = true AND weight > 0 ORDER BY id ASC`);
+    const prizesQ = await pool.query(`
+      SELECT id, label, amount::numeric, weight
+      FROM public.roulette_prizes
+      WHERE active = true AND weight > 0
+      ORDER BY id ASC
+    `);
     const prizes = prizesQ.rows;
 
     const winRoll = cryptoRandom(10000);
     const wins = winRoll < Math.round(rtp * 100);
 
     if (!wins || prizes.length === 0) {
-      const ins = await pool.query(
-        `INSERT INTO public.roulette_spins_plays (user_id, outcome)
-         VALUES ($1,'lose')
-         RETURNING id, created_at`,
-        [req.user.id]
-      );
-      return res.json({ outcome: 'lose', spin_id: ins.rows[0].id, created_at: ins.rows[0].created_at });
+      const row = await insertSpinLose(userIdTxt);
+      return res.json({ outcome: 'lose', spin_id: row.id, created_at: row.created_at });
     }
 
     let totalWeight = 0;
@@ -152,17 +242,12 @@ router.post('/roulette/spin', authRequired, async (req, res, next) => {
     const chosenId = Number(chosen.id);
     const chosenAmount = Number(chosen.amount);
 
-    const ins = await pool.query(
-      `INSERT INTO public.roulette_spins_plays (user_id, prize_id, amount, outcome)
-       VALUES ($1,$2,$3,'win')
-       RETURNING id, created_at`,
-      [req.user.id, chosenId, chosenAmount]
-    );
+    const row = await insertSpinWin(userIdTxt, chosenId, chosenAmount);
 
     res.json({
       outcome: 'win',
-      spin_id: ins.rows[0].id,
-      created_at: ins.rows[0].created_at,
+      spin_id: row.id,
+      created_at: row.created_at,
       prize: { id: chosenId, label: chosen.label, amount: Number(chosenAmount) }
     });
   } catch (e) { next(e); }
