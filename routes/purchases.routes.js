@@ -105,13 +105,20 @@ router.post('/', authRequired, async (req, res, next) => {
         );
       }
 
+      const g = await client.query(
+        `SELECT public.roulette_grant_spins_threshold($1::uuid,$2::int) AS granted`,
+        [req.user.id, purchase.id]
+      );
+      const grantedSpins = parseInt(g.rows[0]?.granted || 0, 10);
+
       return {
         message: 'purchase completed successfully',
         purchaseId: purchase.id,
         numbers: foundAvail.rows.map((r) => r.ticket_number),
         total: subtotal,
         unitPrice: price,
-        digits
+        digits,
+        roulette: grantedSpins > 0 ? { granted_spins: grantedSpins, notice: `Você ganhou ${grantedSpins} giros grátis da roleta.` } : { granted_spins: 0 }
       };
     });
 

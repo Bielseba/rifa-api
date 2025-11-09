@@ -19,7 +19,6 @@ async function pickDeterministicWinner(client, campaignId) {
   if (!cq.rowCount) return null;
   const drawDate = cq.rows[0].draw_date;
   const seed = seedFromCampaign(campaignId, drawDate);
-
   const r = await client.query(
     `
     WITH sold AS (
@@ -52,7 +51,6 @@ router.post('/auth/login', async (req, res, next) => {
     const password = String(req.body?.password || '');
     const username = usernameRaw.trim().toLowerCase();
     if (!username || !password) return res.status(400).json({ error: 'username and password required' });
-
     const q = await pool.query(
       `
       SELECT id, username, role, is_master
@@ -63,16 +61,13 @@ router.post('/auth/login', async (req, res, next) => {
       `,
       [username, password]
     );
-
     if (!q.rowCount) return res.status(401).json({ error: 'invalid credentials' });
-
     const admin = q.rows[0];
     const token = jwt.sign(
       { id: admin.id, username: admin.username, role: admin.role, is_master: admin.is_master === true },
       JWT_SECRET,
       { expiresIn: '12h' }
     );
-
     res.json({ token, admin: { id: admin.id, username: admin.username, role: admin.role, is_master: admin.is_master === true } });
   } catch (e) { next(e); }
 });
@@ -186,62 +181,39 @@ router.get('/campaigns/:id/peek-winner', adminRequired, async (req, res, next) =
   try {
     if (!req.admin?.is_master) return res.status(403).json({ error: 'master only' });
     const id = parseInt(req.params.id, 10);
-
     const client = await pool.connect();
     try {
-      const winner = await (async () => {
-        const cq = await client.query(
-          'SELECT id, draw_date FROM public.campaigns WHERE id=$1',
-          [id]
-        );
-        if (!cq.rowCount) return { predicted: null, reason: 'campaign not found' };
-
-        // mesmo algoritmo determinístico do sorteio
-        const drawDate = cq.rows[0].draw_date;
-        const dateKey = drawDate ? new Date(drawDate).toISOString().slice(0,10) : 'nodraw';
-        const hash = crypto.createHash('sha256')
-          .update(`${id}|${process.env.DRAW_SALT || 'rifa_salt_2025'}|${dateKey}`)
-          .digest('hex');
-        const seed = (parseInt(hash.slice(0, 8), 16) >>> 0);
-
-        const r = await client.query(
-          `
-          WITH sold AS (
-            SELECT
-              t.id,
-              t.ticket_number,
-              p.user_id,
-              ROW_NUMBER() OVER (ORDER BY LPAD(t.ticket_number,12,'0')) AS rn,
-              COUNT(*) OVER() AS total
-            FROM public.tickets t
-            JOIN public.purchased_tickets pt ON pt.ticket_id = t.id
-            JOIN public.purchases p ON p.id = pt.purchase_id
-            WHERE t.campaign_id = $1
-              AND t.status = 'sold'
-              AND p.status = 'completed'
-          )
-          SELECT id, ticket_number, user_id, total
-          FROM sold
-          WHERE rn = ((($2 % GREATEST(total,1)) + 1))
-          `,
-          [id, seed]
-        );
-
-        if (!r.rowCount) return { predicted: null, reason: 'no sold tickets' };
-
-        const row = r.rows[0];
-        return {
-          predicted: {
-            ticket_id: String(row.id),
-            ticket_number: String(row.ticket_number),
-            user_id: String(row.user_id)
-          }
-        };
-      })();
-      return res.json({
-        predicted: winner.predicted ?? null,
-        reason: winner.reason ?? null
-      });
+      const cq = await client.query('SELECT id, draw_date FROM public.campaigns WHERE id=$1', [id]);
+      if (!cq.rowCount) return res.json({ predicted: null, reason: 'campaign not found' });
+      const drawDate = cq.rows[0].draw_date;
+      const dateKey = drawDate ? new Date(drawDate).toISOString().slice(0,10) : 'nodraw';
+      const hash = crypto.createHash('sha256').update(`${id}|${process.env.DRAW_SALT || 'rifa_salt_2025'}|${dateKey}`).digest('hex');
+      const seed = (parseInt(hash.slice(0, 8), 16) >>> 0);
+      const r = await client.query(
+        `
+        WITH sold AS (
+          SELECT
+            t.id,
+            t.ticket_number,
+            p.user_id,
+            ROW_NUMBER() OVER (ORDER BY LPAD(t.ticket_number,12,'0')) AS rn,
+            COUNT(*) OVER() AS total
+          FROM public.tickets t
+          JOIN public.purchased_tickets pt ON pt.ticket_id = t.id
+          JOIN public.purchases p ON p.id = pt.purchase_id
+          WHERE t.campaign_id = $1
+            AND t.status = 'sold'
+            AND p.status = 'completed'
+        )
+        SELECT id, ticket_number, user_id, total
+        FROM sold
+        WHERE rn = ((($2 % GREATEST(total,1)) + 1))
+        `,
+        [id, seed]
+      );
+      if (!r.rowCount) return res.json({ predicted: null, reason: 'no sold tickets' });
+      const row = r.rows[0];
+      return res.json({ predicted: { ticket_id: String(row.id), ticket_number: String(row.ticket_number), user_id: String(row.user_id) }, reason: null });
     } finally {
       client.release();
     }
@@ -256,16 +228,7 @@ router.patch('/campaigns/:id', adminRequired, async (req, res, next) => {
       `SELECT public.admin_update_campaign(
         $1::int,$2::text,$3::text,$4::text,$5::numeric,$6::int,$7::timestamptz,$8::text
       )`,
-      [
-        id,
-        title ?? null,
-        description ?? null,
-        image_url ?? null,
-        ticket_price ?? null,
-        total_tickets ?? null,
-        draw_date ?? null,
-        status ?? null
-      ]
+      [id, title ?? null, description ?? null, image_url ?? null, ticket_price ?? null, total_tickets ?? null, draw_date ?? null, status ?? null]
     );
     res.json({ ok: true });
   } catch (e) { next(e); }
@@ -276,21 +239,13 @@ router.delete('/campaigns/:id', adminRequired, async (req, res, next) => {
     const id = parseInt(req.params.id, 10);
     const hard = String(req.query.hard || '').trim() === '1';
     if (Number.isNaN(id)) return res.status(400).json({ error: 'invalid id' });
-
     if (hard) {
-      const r = await pool.query(
-        `DELETE FROM public.campaigns WHERE id = $1 RETURNING id`,
-        [id]
-      );
+      const r = await pool.query(`DELETE FROM public.campaigns WHERE id = $1 RETURNING id`, [id]);
       if (!r.rowCount) return res.status(404).json({ error: 'campaign not found' });
       return res.status(204).end();
     }
-
     const r = await pool.query(
-      `UPDATE public.campaigns
-         SET status = 'deleted', updated_at = NOW()
-       WHERE id = $1
-       RETURNING id`,
+      `UPDATE public.campaigns SET status = 'deleted', updated_at = NOW() WHERE id = $1 RETURNING id`,
       [id]
     );
     if (!r.rowCount) return res.status(404).json({ error: 'campaign not found' });
@@ -311,10 +266,7 @@ router.post('/campaigns/:id/reserve', adminRequired, async (req, res, next) => {
     const id = parseInt(req.params.id, 10);
     const { ticket_number, minutes } = req.body || {};
     if (!ticket_number) return res.status(400).json({ error: 'ticket_number required' });
-    const r = await pool.query(
-      `SELECT * FROM public.admin_reserve_ticket($1::int,$2::text,$3::int)`,
-      [id, ticket_number, minutes || 30]
-    );
+    const r = await pool.query(`SELECT * FROM public.admin_reserve_ticket($1::int,$2::text,$3::int)`, [id, ticket_number, minutes || 30]);
     res.json(r.rows[0]);
   } catch (e) {
     if (String(e.message).includes('ticket not available')) return res.status(409).json({ error: 'ticket not available' });
@@ -458,6 +410,108 @@ router.get('/stats/overview', adminRequired, async (req, res, next) => {
       `
     );
     res.json(r.rows[0] || {});
+  } catch (e) { next(e); }
+});
+
+/* Roleta: Admin CRUD e RTP */
+router.get('/roulette/prizes', adminRequired, async (req, res, next) => {
+  try {
+    const r = await pool.query(`SELECT id, category, description, amount, active, created_at FROM public.roulette_prizes ORDER BY id DESC`);
+    res.json(r.rows);
+  } catch (e) { next(e); }
+});
+
+router.post('/roulette/prizes', adminRequired, async (req, res, next) => {
+  try {
+    const category = String(req.body?.category || '').toLowerCase();
+    const description = String(req.body?.description || '').trim();
+    const amount = Number(req.body?.value || 0);
+    const active = req.body?.active === false ? false : true;
+    if (!['dinheiro','outro'].includes(category)) return res.status(400).json({ error: 'invalid category' });
+    if (!description) return res.status(400).json({ error: 'description required' });
+    const amt = category === 'dinheiro' ? Math.max(0, amount) : 0;
+    const r = await pool.query(
+      `INSERT INTO public.roulette_prizes(category, description, amount, active)
+       VALUES ($1,$2,$3,$4)
+       RETURNING id, category, description, amount, active, created_at`,
+      [category, description, amt, active]
+    );
+    res.status(201).json(r.rows[0]);
+  } catch (e) { next(e); }
+});
+
+router.patch('/roulette/prizes/:id', adminRequired, async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const categoryRaw = req.body?.category;
+    const descriptionRaw = req.body?.description;
+    const valueRaw = req.body?.value;
+    const activeRaw = req.body?.active;
+    let set = [];
+    let vals = [];
+    let i = 1;
+    if (typeof categoryRaw === 'string') {
+      const c = categoryRaw.toLowerCase();
+      if (!['dinheiro','outro'].includes(c)) return res.status(400).json({ error: 'invalid category' });
+      set.push(`category = $${i++}`); vals.push(c);
+    }
+    if (typeof descriptionRaw === 'string') {
+      const d = descriptionRaw.trim();
+      if (!d) return res.status(400).json({ error: 'description required' });
+      set.push(`description = $${i++}`); vals.push(d);
+    }
+    if (valueRaw !== undefined) {
+      const a = Number(valueRaw);
+      set.push(`amount = $${i++}`); vals.push(Math.max(0, a));
+    }
+    if (activeRaw !== undefined) {
+      set.push(`active = $${i++}`); vals.push(activeRaw === true);
+    }
+    if (set.length === 0) return res.status(400).json({ error: 'no changes' });
+    vals.push(id);
+    const r = await pool.query(
+      `UPDATE public.roulette_prizes SET ${set.join(', ')} WHERE id = $${i} RETURNING id, category, description, amount, active, created_at`,
+      vals
+    );
+    if (!r.rowCount) return res.status(404).json({ error: 'not found' });
+    const row = r.rows[0];
+    if (row.category === 'outro' && row.amount !== 0) {
+      await pool.query(`UPDATE public.roulette_prizes SET amount = 0 WHERE id = $1`, [row.id]);
+      row.amount = 0;
+    }
+    res.json(row);
+  } catch (e) { next(e); }
+});
+
+router.delete('/roulette/prizes/:id', adminRequired, async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const r = await pool.query(`DELETE FROM public.roulette_prizes WHERE id = $1 RETURNING id`, [id]);
+    if (!r.rowCount) return res.status(404).json({ error: 'not found' });
+    res.status(204).end();
+  } catch (e) { next(e); }
+});
+
+router.get('/roulette/settings', adminRequired, async (req, res, next) => {
+  try {
+    const r = await pool.query(`SELECT id, rtp FROM public.roulette_settings WHERE id = 1`);
+    res.json(r.rows[0] || { id: 1, rtp: 0 });
+  } catch (e) { next(e); }
+});
+
+router.patch('/roulette/settings', adminRequired, async (req, res, next) => {
+  try {
+    let rtp = parseInt(req.body?.rtp ?? '0', 10);
+    if (!Number.isFinite(rtp)) rtp = 0;
+    if (rtp < 0) rtp = 0;
+    if (rtp > 100) rtp = 100;
+    const r = await pool.query(
+      `INSERT INTO public.roulette_settings(id, rtp) VALUES (1,$1)
+       ON CONFLICT (id) DO UPDATE SET rtp = EXCLUDED.rtp
+       RETURNING id, rtp`,
+      [rtp]
+    );
+    res.json(r.rows[0]);
   } catch (e) { next(e); }
 });
 
