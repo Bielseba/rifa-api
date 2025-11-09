@@ -421,21 +421,19 @@ router.get('/roulette/prizes', adminRequired, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.post('/roulette/prizes', adminRequired, async (req, res, next) => {
+rrouter.post('/roulette/prizes', adminRequired, async (req, res, next) => {
   try {
-    const category = String(req.body?.category || '').toLowerCase();
-    const description = String(req.body?.description || '').trim();
-    const amount = Number(req.body?.value || 0);
-    const active = req.body?.active === false ? false : true;
-    if (!['dinheiro','outro'].includes(category)) return res.status(400).json({ error: 'invalid category' });
-    if (!description) return res.status(400).json({ error: 'description required' });
-    const amt = category === 'dinheiro' ? Math.max(0, amount) : 0;
+    const { category, description, value, weight, active } = req.body;
+    const cat = category === 'outro' ? 'outro' : 'dinheiro';
+    const amount = cat === 'dinheiro' ? Number(value || 0) : 0;
+
     const r = await pool.query(
-      `INSERT INTO public.roulette_prizes(category, description, amount, active)
-       VALUES ($1,$2,$3,$4)
-       RETURNING id, category, description, amount, active, created_at`,
-      [category, description, amt, active]
+      `INSERT INTO public.roulette_prizes (category, description, label, amount, weight, active)
+       VALUES ($1, $2, $3, $4, $5, COALESCE($6, true))
+       RETURNING id, category, description, label, amount, weight, active, created_at, updated_at`,
+      [cat, description || '', description || '', amount, weight || 1, active]
     );
+
     res.status(201).json(r.rows[0]);
   } catch (e) { next(e); }
 });
@@ -443,43 +441,26 @@ router.post('/roulette/prizes', adminRequired, async (req, res, next) => {
 router.patch('/roulette/prizes/:id', adminRequired, async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const categoryRaw = req.body?.category;
-    const descriptionRaw = req.body?.description;
-    const valueRaw = req.body?.value;
-    const activeRaw = req.body?.active;
-    let set = [];
-    let vals = [];
-    let i = 1;
-    if (typeof categoryRaw === 'string') {
-      const c = categoryRaw.toLowerCase();
-      if (!['dinheiro','outro'].includes(c)) return res.status(400).json({ error: 'invalid category' });
-      set.push(`category = $${i++}`); vals.push(c);
-    }
-    if (typeof descriptionRaw === 'string') {
-      const d = descriptionRaw.trim();
-      if (!d) return res.status(400).json({ error: 'description required' });
-      set.push(`description = $${i++}`); vals.push(d);
-    }
-    if (valueRaw !== undefined) {
-      const a = Number(valueRaw);
-      set.push(`amount = $${i++}`); vals.push(Math.max(0, a));
-    }
-    if (activeRaw !== undefined) {
-      set.push(`active = $${i++}`); vals.push(activeRaw === true);
-    }
-    if (set.length === 0) return res.status(400).json({ error: 'no changes' });
-    vals.push(id);
+    const { category, description, value, weight, active } = req.body;
+    const cat = category === 'outro' ? 'outro' : 'dinheiro';
+    const amount = cat === 'dinheiro' ? Number(value || 0) : 0;
+
     const r = await pool.query(
-      `UPDATE public.roulette_prizes SET ${set.join(', ')} WHERE id = $${i} RETURNING id, category, description, amount, active, created_at`,
-      vals
+      `UPDATE public.roulette_prizes
+          SET category=$2,
+              description=$3,
+              label=$3,
+              amount=$4,
+              weight=COALESCE($5, weight),
+              active=COALESCE($6, active),
+              updated_at=NOW()
+        WHERE id=$1
+        RETURNING id, category, description, label, amount, weight, active, created_at, updated_at`,
+      [id, cat, description || '', amount, weight, active]
     );
-    if (!r.rowCount) return res.status(404).json({ error: 'not found' });
-    const row = r.rows[0];
-    if (row.category === 'outro' && row.amount !== 0) {
-      await pool.query(`UPDATE public.roulette_prizes SET amount = 0 WHERE id = $1`, [row.id]);
-      row.amount = 0;
-    }
-    res.json(row);
+
+    if (!r.rowCount) return res.status(404).json({ error: 'prize not found' });
+    res.json(r.rows[0]);
   } catch (e) { next(e); }
 });
 
