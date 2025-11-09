@@ -478,7 +478,7 @@ router.delete('/roulette/prizes/:id', adminRequired, async (req, res, next) => {
 
 router.get('/roulette/settings', adminRequired, async (req, res, next) => {
   try {
-    const r = await pool.query(`SELECT id, rtp_percent FROM public.roulette_settings WHERE id = 1`);
+    const r = await pool.query(`SELECT id, rtp AS rtp_percent FROM public.roulette_settings WHERE id = 1`);
     res.json(r.rows[0] || { id: 1, rtp_percent: 0 });
   } catch (e) { next(e); }
 });
@@ -490,10 +490,10 @@ router.patch('/roulette/settings', adminRequired, async (req, res, next) => {
     if (rtp < 0) rtp = 0;
     if (rtp > 100) rtp = 100;
     const r = await pool.query(
-      `INSERT INTO public.roulette_settings (id, rtp_percent)
+      `INSERT INTO public.roulette_settings (id, rtp)
        VALUES (1, $1)
-       ON CONFLICT (id) DO UPDATE SET rtp_percent = EXCLUDED.rtp_percent, updated_at = now()
-       RETURNING id, rtp_percent`,
+       ON CONFLICT (id) DO UPDATE SET rtp = EXCLUDED.rtp, updated_at = now()
+       RETURNING id, rtp AS rtp_percent`,
       [rtp]
     );
     res.json(r.rows[0]);
