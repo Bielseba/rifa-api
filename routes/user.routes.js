@@ -131,7 +131,9 @@ router.post('/roulette/spin', authRequired, async (req, res, next) => {
 
     if (!wins || prizes.length === 0) {
       const ins = await pool.query(
-        `INSERT INTO public.roulette_spins_plays (user_id, outcome) VALUES ($1,'lose') RETURNING id, created_at`,
+        `INSERT INTO public.roulette_spins_plays (user_id, outcome)
+         VALUES ($1::uuid,'lose')
+         RETURNING id, created_at`,
         [req.user.id]
       );
       return res.json({ outcome: 'lose', spin_id: ins.rows[0].id, created_at: ins.rows[0].created_at });
@@ -152,7 +154,7 @@ router.post('/roulette/spin', authRequired, async (req, res, next) => {
 
     const ins = await pool.query(
       `INSERT INTO public.roulette_spins_plays (user_id, prize_id, amount, outcome)
-       VALUES ($1,$2,$3,'win')
+       VALUES ($1::uuid,$2::int,$3::numeric,'win')
        RETURNING id, created_at`,
       [req.user.id, chosenId, chosenAmount]
     );
