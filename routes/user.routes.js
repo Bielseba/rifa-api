@@ -210,8 +210,8 @@ router.post('/roulette/spin', authRequired, async (req, res, next) => {
     const available = parseInt(a.rows[0]?.available || 0, 10);
     if (available <= 0) return res.status(403).json({ error: 'no spins available' });
 
-    const s = await pool.query(`SELECT rtp_percent FROM public.roulette_settings WHERE id=1`);
-    const rtp = Number(s.rows[0]?.rtp_percent || 0);
+    const s = await pool.query(`SELECT rtp FROM public.roulette_settings WHERE id=1`);
+    const rtp = Number(s.rows[0]?.rtp || 0);
 
     const prizesQ = await pool.query(`
       SELECT id, label, amount::numeric
