@@ -502,4 +502,78 @@ router.patch('/roulette/settings', adminRequired, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+
+router.get('/withdrawals', adminRequired, async (req, res, next) => {
+  try {
+    const r = await pool.query(
+      `
+      SELECT
+        w.id,
+        w.amount::numeric AS amount,
+        w.created_at,
+        json_build_object(
+          'name', u.name,
+          'pix_key', COALESCE(u.pix_key, u.email)
+        ) AS user
+      FROM public.withdrawals w
+      LEFT JOIN public.users u ON u.id::text = w.user_id::text
+      WHERE w.status = 'pending'
+      ORDER BY w.created_at ASC, w.id ASC
+      `
+    );
+    res.json(r.rows);
+  } catch (e) { next(e); }
+});
+
+router.post('/withdrawals/:id/approve', adminRequired, async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const r = await pool.query(
+      `
+      UPDATE public.withdrawals
+         SET status = 'approved',
+             approved_at = NOW(),
+             approved_by = $2
+       WHERE id = $1
+         AND status = 'pending'
+       RETURNING id
+      `,
+      [id, String(req.admin?.id || '')]
+    );
+    if (!r.rowCount) return res.status(404).json({ message: 'Withdrawal not found or already processed.' });
+    res.json({ message: 'Withdrawal approved successfully.' });
+  } catch (e) { next(e); }
+});
+
+/* Winners */
+router.get('/winners', adminRequired, async (req, res, next) => {
+  try {
+    const r = await pool.query(
+      `
+      SELECT
+        cw.id,
+        json_build_object(
+          'title', c.title,
+          'image_url', c.image_url,
+          'draw_date', c.draw_date
+        ) AS campaign,
+        json_build_object(
+          'name', u.name,
+          'email', u.email,
+          'phone', u.phone
+        ) AS "user",
+        json_build_object(
+          'number', t.ticket_number
+        ) AS ticket
+      FROM public.campaign_winners cw
+      JOIN public.campaigns c ON c.id = cw.campaign_id
+      JOIN public.tickets t ON t.id = cw.ticket_id
+      LEFT JOIN public.users u ON u.id::text = cw.user_id::text
+      ORDER BY cw.created_at DESC, cw.id DESC
+      `
+    );
+    res.json(r.rows);
+  } catch (e) { next(e); }
+});
+
 export default router;
