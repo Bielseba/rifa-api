@@ -503,7 +503,6 @@ router.patch('/roulette/settings', adminRequired, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/* Withdrawals */
 router.get('/withdrawals', adminRequired, async (req, res, next) => {
   try {
     const r = await pool.query(
@@ -514,7 +513,7 @@ router.get('/withdrawals', adminRequired, async (req, res, next) => {
         w.created_at,
         json_build_object(
           'name', u.name,
-          'pix_key', COALESCE(u.pix_key, u.email)
+          'pix_key', COALESCE(NULLIF(TRIM(w.pix_key), ''), NULLIF(TRIM(u.phone), ''), u.email)
         ) AS user
       FROM public.withdrawals w
       LEFT JOIN public.users u ON u.id::text = w.user_id::text
@@ -546,7 +545,6 @@ router.post('/withdrawals/:id/approve', adminRequired, async (req, res, next) =>
   } catch (e) { next(e); }
 });
 
-/* Winners */
 router.get('/winners', adminRequired, async (req, res, next) => {
   try {
     const r = await pool.query(
