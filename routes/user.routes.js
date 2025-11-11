@@ -1,4 +1,3 @@
-
 import { Router } from 'express';
 import crypto from 'crypto';
 import { pool } from '../db.js';
@@ -218,6 +217,106 @@ router.post('/roulette/spin', authRequired, async (req, res, next) => {
       created_at: row.created_at,
       prize: { id: chosenId, label: chosen.label, amount: Number(chosenAmount) }
     });
+  } catch (e) { next(e); }
+});
+
+router.get('/balance', authRequired, async (req, res, next) => {
+  try {
+    const userIdTxt = String(req.user.id);
+    const q = await pool.query(
+      `
+      WITH wins AS (
+        SELECT COALESCE(SUM(amount),0)::numeric AS total_won
+        FROM public.roulette_spins_plays
+        WHERE user_id::text = $1::text
+          AND outcome = 'win'
+      ),
+      wd AS (
+        SELECT COALESCE(SUM(amount),0)::numeric AS total_requested
+        FROM public.withdrawals
+        WHERE user_id::text = $1::text
+          AND status IN ('pending','approved')
+      )
+      SELECT wins.total_won AS total_won,
+             wd.total_requested AS total_withdrawals_reserved,
+             GREATEST(wins.total_won - wd.total_requested, 0)::numeric AS balance_available
+      FROM wins, wd
+      `,
+      [userIdTxt]
+    );
+    const row = q.rows[0] || { total_won: 0, total_withdrawals_reserved: 0, balance_available: 0 };
+    res.json(row);
+  } catch (e) { next(e); }
+});
+
+router.get('/withdrawals', authRequired, async (req, res, next) => {
+  try {
+    const userIdTxt = String(req.user.id);
+    const r = await pool.query(
+      `
+      SELECT
+        id,
+        amount::numeric AS amount,
+        status,
+        pix_key,
+        created_at,
+        approved_at
+      FROM public.withdrawals
+      WHERE user_id::text = $1::text
+      ORDER BY id DESC
+      `,
+      [userIdTxt]
+    );
+    res.json(r.rows);
+  } catch (e) { next(e); }
+});
+
+router.post('/withdrawals', authRequired, async (req, res, next) => {
+  try {
+    const userIdTxt = String(req.user.id);
+    let raw = req.body?.amount ?? 0;
+    raw = String(raw).replace(',', '.').trim();
+    let amount = Number(raw);
+    if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'invalid amount' });
+
+    const balQ = await pool.query(
+      `
+      WITH wins AS (
+        SELECT COALESCE(SUM(amount),0)::numeric AS total_won
+        FROM public.roulette_spins_plays
+        WHERE user_id::text = $1::text
+          AND outcome = 'win'
+      ),
+      wd AS (
+        SELECT COALESCE(SUM(amount),0)::numeric AS total_requested
+        FROM public.withdrawals
+        WHERE user_id::text = $1::text
+          AND status IN ('pending','approved')
+      )
+      SELECT GREATEST(wins.total_won - wd.total_requested, 0)::numeric AS balance_available
+      FROM wins, wd
+      `,
+      [userIdTxt]
+    );
+    const available = Number(balQ.rows[0]?.balance_available || 0);
+    if (amount > available) return res.status(400).json({ error: 'amount exceeds available balance' });
+
+    const u = await pool.query(
+      `SELECT name, email, phone FROM public.users WHERE id::text = $1::text LIMIT 1`,
+      [userIdTxt]
+    );
+    const bodyPix = String(req.body?.pix_key || '').trim();
+    const pix_key = bodyPix || String(u.rows[0]?.phone || u.rows[0]?.email || '').trim() || null;
+
+    const ins = await pool.query(
+      `
+      INSERT INTO public.withdrawals (user_id, amount, status, pix_key)
+      VALUES ($1::text, $2::numeric, 'pending', $3)
+      RETURNING id, amount::numeric AS amount, status, pix_key, created_at
+      `,
+      [userIdTxt, amount, pix_key]
+    );
+    res.status(201).json(ins.rows[0]);
   } catch (e) { next(e); }
 });
 

@@ -1,4 +1,3 @@
-// admin.routes.js
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
