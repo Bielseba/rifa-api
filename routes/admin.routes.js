@@ -1,3 +1,4 @@
+// admin.routes.js
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
@@ -502,7 +503,7 @@ router.patch('/roulette/settings', adminRequired, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-
+/* Withdrawals */
 router.get('/withdrawals', adminRequired, async (req, res, next) => {
   try {
     const r = await pool.query(
