@@ -1,4 +1,4 @@
-// user.routes.js
+
 import { Router } from 'express';
 import crypto from 'crypto';
 import { pool } from '../db.js';
