@@ -547,7 +547,6 @@ router.post('/withdrawals/:id/approve', adminRequired, async (req, res, next) =>
 router.post('/withdrawals/:id/reject', adminRequired, async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
-
     const r = await pool.query(
       `
       UPDATE public.withdrawals
@@ -558,12 +557,8 @@ router.post('/withdrawals/:id/reject', adminRequired, async (req, res, next) => 
       `,
       [id]
     );
-
-    if (!r.rowCount)
-      return res.status(404).json({ message: 'Withdrawal not found or already processed.' });
-
+    if (!r.rowCount) return res.status(404).json({ message: 'Withdrawal not found or already processed.' });
     const { user_id, amount } = r.rows[0];
-
     await pool.query(
       `
       UPDATE public.users
@@ -572,11 +567,101 @@ router.post('/withdrawals/:id/reject', adminRequired, async (req, res, next) => 
       `,
       [String(user_id), Number(amount)]
     );
-
     res.json({ message: 'Withdrawal rejected and funds returned to user.' });
   } catch (e) { next(e); }
 });
 
+function normalizeSocialUrl(network, value) {
+  const v = String(value || '').trim();
+  if (!v) return '';
+  if (network === 'instagram') {
+    if (/^https?:\/\//i.test(v)) return v;
+    if (v.startsWith('@')) return `https://instagram.com/${v.slice(1)}`;
+    return `https://instagram.com/${v}`;
+  }
+  if (network === 'telegram') {
+    if (/^https?:\/\//i.test(v)) return v;
+    if (v.startsWith('@')) return `https://t.me/${v.slice(1)}`;
+    return `https://t.me/${v}`;
+  }
+  if (network === 'whatsapp') {
+    if (/^https?:\/\//i.test(v)) return v;
+    const digits = v.replace(/\D+/g, '');
+    if (!digits) return '';
+    return `https://wa.me/${digits}`;
+  }
+  return v;
+}
+
+router.get('/social-links', adminRequired, async (req, res, next) => {
+  try {
+    const r = await pool.query(
+      `
+      SELECT network, url, visible, created_at, updated_at
+      FROM public.social_links
+      ORDER BY network ASC
+      `
+    );
+    res.json(r.rows);
+  } catch (e) { next(e); }
+});
+
+router.post('/social-links/:network', adminRequired, async (req, res, next) => {
+  try {
+    const network = String(req.params.network || '').toLowerCase();
+    const allowed = ['instagram','whatsapp','telegram'];
+    if (!allowed.includes(network)) return res.status(400).json({ error: 'invalid network' });
+    const rawUrl = req.body?.url ?? '';
+    const visible = req.body?.visible === true || req.body?.visible === 'true';
+    const url = normalizeSocialUrl(network, rawUrl);
+    const r = await pool.query(
+      `
+      INSERT INTO public.social_links (network, url, visible, created_at, updated_at)
+      VALUES ($1,$2,$3,NOW(),NOW())
+      ON CONFLICT (network)
+      DO UPDATE SET url = EXCLUDED.url, visible = EXCLUDED.visible, updated_at = NOW()
+      RETURNING network, url, visible, created_at, updated_at
+      `,
+      [network, url, visible]
+    );
+    res.json(r.rows[0]);
+  } catch (e) { next(e); }
+});
+
+router.patch('/social-links/:network/visibility', adminRequired, async (req, res, next) => {
+  try {
+    const network = String(req.params.network || '').toLowerCase();
+    const allowed = ['instagram','whatsapp','telegram'];
+    if (!allowed.includes(network)) return res.status(400).json({ error: 'invalid network' });
+    const visible = req.body?.visible === true || req.body?.visible === 'true';
+    const r = await pool.query(
+      `
+      INSERT INTO public.social_links (network, url, visible, created_at, updated_at)
+      VALUES ($1,'', $2, NOW(), NOW())
+      ON CONFLICT (network)
+      DO UPDATE SET visible = EXCLUDED.visible, updated_at = NOW()
+      RETURNING network, url, visible, created_at, updated_at
+      `,
+      [network, visible]
+    );
+    res.json(r.rows[0]);
+  } catch (e) { next(e); }
+});
+
+router.get('/public/social-links', async (req, res, next) => {
+  try {
+    const r = await pool.query(
+      `
+      SELECT network, url
+      FROM public.social_links
+      WHERE visible = true AND COALESCE(NULLIF(TRIM(url),''),'') <> ''
+      ORDER BY network ASC
+      `
+    );
+    const out = r.rows.map(row => ({ network: row.network, url: normalizeSocialUrl(row.network, row.url) }));
+    res.json(out);
+  } catch (e) { next(e); }
+});
 
 router.get('/winners', adminRequired, async (req, res, next) => {
   try {
