@@ -544,22 +544,36 @@ router.post('/withdrawals/:id/approve', adminRequired, async (req, res, next) =>
   } catch (e) { next(e); }
 });
 
-router.post('/withdrawals/:id/reject', adminRequired, async (req, res, next) => {
+outer.post('/withdrawals/:id/reject', adminRequired, async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
+
     const r = await pool.query(
       `
       UPDATE public.withdrawals
-         SET status = 'rejected',
-             updated_at = NOW()
+         SET status = 'rejected'
        WHERE id = $1
          AND status = 'pending'
-       RETURNING id
+       RETURNING id, user_id, amount
       `,
       [id]
     );
-    if (!r.rowCount) return res.status(404).json({ message: 'Withdrawal not found or already processed.' });
-    res.json({ message: 'Withdrawal rejected successfully.' });
+
+    if (!r.rowCount)
+      return res.status(404).json({ message: 'Withdrawal not found or already processed.' });
+
+    const { user_id, amount } = r.rows[0];
+
+    await pool.query(
+      `
+      UPDATE public.users
+         SET balance = balance + $2
+       WHERE id::text = $1::text
+      `,
+      [String(user_id), Number(amount)]
+    );
+
+    res.json({ message: 'Withdrawal rejected and funds returned to user.' });
   } catch (e) { next(e); }
 });
 
