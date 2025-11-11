@@ -448,7 +448,7 @@ router.patch('/roulette/prizes/:id', adminRequired, async (req, res, next) => {
     const cat = category === 'outro' ? 'outro' : (category === 'dinheiro' ? 'dinheiro' : null);
     const label = typeof description === 'string' ? description.trim() : null;
     const amount = (cat ?? null) === 'dinheiro'
-      ? (Number.isFinite(Number(value)) ? Number(value) : null)
+      ? (Number.isFinite(Number(String(value).replace(',', '.'))) ? Number(String(value).replace(',', '.')) : null)
       : 0;
     const r = await pool.query(
       `UPDATE public.roulette_prizes
@@ -485,7 +485,9 @@ router.get('/roulette/settings', adminRequired, async (req, res, next) => {
 
 router.patch('/roulette/settings', adminRequired, async (req, res, next) => {
   try {
-    let rtp = Number(req.body?.rtp_percent ?? 0);
+    let raw = req.body?.rtp_percent ?? req.body?.rtp ?? req.body?.value ?? 0;
+    raw = String(raw).replace(',', '.').trim();
+    let rtp = Number(raw);
     if (!Number.isFinite(rtp)) rtp = 0;
     if (rtp < 0) rtp = 0;
     if (rtp > 100) rtp = 100;
