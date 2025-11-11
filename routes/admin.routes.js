@@ -544,6 +544,25 @@ router.post('/withdrawals/:id/approve', adminRequired, async (req, res, next) =>
   } catch (e) { next(e); }
 });
 
+router.post('/withdrawals/:id/reject', adminRequired, async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const r = await pool.query(
+      `
+      UPDATE public.withdrawals
+         SET status = 'rejected',
+             updated_at = NOW()
+       WHERE id = $1
+         AND status = 'pending'
+       RETURNING id
+      `,
+      [id]
+    );
+    if (!r.rowCount) return res.status(404).json({ message: 'Withdrawal not found or already processed.' });
+    res.json({ message: 'Withdrawal rejected successfully.' });
+  } catch (e) { next(e); }
+});
+
 router.get('/winners', adminRequired, async (req, res, next) => {
   try {
     const r = await pool.query(
