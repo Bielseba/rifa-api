@@ -544,7 +544,7 @@ router.post('/withdrawals/:id/approve', adminRequired, async (req, res, next) =>
   } catch (e) { next(e); }
 });
 
-outer.post('/withdrawals/:id/reject', adminRequired, async (req, res, next) => {
+router.post('/withdrawals/:id/reject', adminRequired, async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
 
@@ -576,6 +576,7 @@ outer.post('/withdrawals/:id/reject', adminRequired, async (req, res, next) => {
     res.json({ message: 'Withdrawal rejected and funds returned to user.' });
   } catch (e) { next(e); }
 });
+
 
 router.get('/winners', adminRequired, async (req, res, next) => {
   try {
