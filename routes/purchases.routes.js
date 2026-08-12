@@ -21,10 +21,22 @@ router.post('/', authRequired, async (req, res, next) => {
       try { await client.query('SELECT public.expire_ticket_reservations()'); } catch {}
 
       const cmp = await client.query(
-        'SELECT id, ticket_price FROM public.campaigns WHERE id = $1',
+        'SELECT id, ticket_price, status, draw_date FROM public.campaigns WHERE id = $1',
         [campaignId]
       );
       if (!cmp.rowCount) throw new Error('campaign not found');
+
+      const campaignData = cmp.rows[0];
+      const drawDatePassed = campaignData.draw_date ? new Date(campaignData.draw_date) <= new Date() : false;
+
+      if (campaignData.status !== 'active' || drawDatePassed) {
+        if (drawDatePassed && campaignData.status === 'active') {
+          try {
+            await client.query("UPDATE public.campaigns SET status='expired' WHERE id = $1", [campaignId]);
+          } catch {}
+        }
+        return { error: 'campaign_expired', message: 'Esta campanha já encerrou e não aceita mais pedidos.' };
+      }
 
       const digitsQ = await client.query(
         `SELECT COALESCE(MAX(LENGTH(ticket_number)),3) AS digits
@@ -156,6 +168,9 @@ router.post('/', authRequired, async (req, res, next) => {
       };
     });
 
+    if (result?.error === 'campaign_expired') {
+      return res.status(400).json(result);
+    }
     if (result?.error === 'no valid numbers') {
       return res.status(400).json({ error: 'no valid numbers' });
     }
