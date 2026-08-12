@@ -122,6 +122,8 @@ router.get('/', async (req, res, next) => {
         imageUrl: c.image_url,
         resultDate: c.draw_date,
         status: c.status,
+        pricePerTicket: Number(c.ticket_price),
+        totalTickets: c.total_tickets,
         progress,
         winner: c.winner_id
           ? {
