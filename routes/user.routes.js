@@ -263,4 +263,23 @@ router.post('/deposit', authRequired, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+router.get('/settings/general', async (req, res, next) => {
+  try {
+    const r = await pool.query(`SELECT affiliate_percentage FROM public.general_settings WHERE id = 1`);
+    res.json(r.rows[0] || { affiliate_percentage: 10 });
+  } catch (e) { next(e); }
+});
+
+router.get('/roulette/prizes', async (req, res, next) => {
+  try {
+    const r = await pool.query(
+      `SELECT id, category, description, label, amount
+       FROM public.roulette_prizes
+       WHERE active = true
+       ORDER BY id ASC`
+    );
+    res.json(r.rows);
+  } catch (e) { next(e); }
+});
+
 export default router;

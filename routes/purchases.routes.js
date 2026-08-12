@@ -106,9 +106,11 @@ router.post('/', authRequired, async (req, res, next) => {
       // Deduct balance
       await client.query('UPDATE public.users SET wallet_balance = wallet_balance - $2 WHERE id = $1', [req.user.id, subtotal]);
 
-      // Award affiliate commission (10% of subtotal)
+      // Award affiliate commission
       if (referredBy) {
-        const commission = subtotal * 0.10;
+        const pctQ = await client.query('SELECT affiliate_percentage FROM public.general_settings WHERE id = 1');
+        const affiliatePercentage = Number(pctQ.rows[0]?.affiliate_percentage || 10);
+        const commission = subtotal * (affiliatePercentage / 100);
         await client.query('UPDATE public.users SET wallet_balance = COALESCE(wallet_balance, 0) + $2 WHERE id = $1', [referredBy, commission]);
       }
 

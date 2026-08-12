@@ -502,6 +502,31 @@ router.patch('/roulette/settings', adminRequired, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+router.get('/settings/general', adminRequired, async (req, res, next) => {
+  try {
+    const r = await pool.query(`SELECT id, affiliate_percentage FROM public.general_settings WHERE id = 1`);
+    res.json(r.rows[0] || { id: 1, affiliate_percentage: 10 });
+  } catch (e) { next(e); }
+});
+
+router.patch('/settings/general', adminRequired, async (req, res, next) => {
+  try {
+    let raw = req.body?.affiliate_percentage ?? 10;
+    raw = String(raw).replace(',', '.').trim();
+    let pct = Number(raw);
+    if (!Number.isFinite(pct) || pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    const r = await pool.query(
+      `INSERT INTO public.general_settings (id, affiliate_percentage)
+       VALUES (1, $1)
+       ON CONFLICT (id) DO UPDATE SET affiliate_percentage = EXCLUDED.affiliate_percentage
+       RETURNING id, affiliate_percentage`,
+      [pct]
+    );
+    res.json(r.rows[0]);
+  } catch (e) { next(e); }
+});
+
 router.get('/withdrawals', adminRequired, async (req, res, next) => {
   try {
     const r = await pool.query(
