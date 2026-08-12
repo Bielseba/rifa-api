@@ -735,11 +735,11 @@ router.get('/winners', adminRequired, async (req, res, next) => {
         json_build_object(
           'number', t.ticket_number
         ) AS ticket
-      FROM public.campaign_winners cw
+      FROM public.winners cw
       JOIN public.campaigns c ON c.id = cw.campaign_id
-      JOIN public.tickets t ON t.id = cw.ticket_id
-      LEFT JOIN public.users u ON u.id::text = cw.user_id::text
-      ORDER BY cw.created_at DESC, cw.id DESC
+      JOIN public.tickets t ON t.id = cw.winning_ticket_id
+      LEFT JOIN public.users u ON u.id = cw.user_id
+      ORDER BY cw.announced_at DESC, cw.id DESC
       `
     );
     res.json(r.rows);
