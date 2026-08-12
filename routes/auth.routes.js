@@ -23,7 +23,7 @@ router.post('/login-register', async (req, res, next) => {
     if (!phone) return res.status(400).json({ error: 'phone required' });
 
     let q = await pool.query(
-      'SELECT id, phone, name, email, cpf, cep, address FROM users WHERE phone = $1',
+      'SELECT id, phone, name, email, cpf, cep, address, wallet_balance, referred_by FROM users WHERE phone = $1',
       [phone]
     );
 
@@ -44,7 +44,7 @@ router.post('/login-register', async (req, res, next) => {
                  address = COALESCE($4, address),
                  updated_at = NOW()
            WHERE id = $1
-           RETURNING id, phone, name, email, cpf, cep, address`,
+           RETURNING id, phone, name, email, cpf, cep, address, wallet_balance, referred_by`,
           [user.id, needEmail ? emailRaw : null, needCep ? cep : null, needAddr ? addr : null]
         );
         user = upd.rows[0];
@@ -64,11 +64,17 @@ router.post('/login-register', async (req, res, next) => {
         if (e.rowCount) return res.status(409).json({ error: 'email already registered' });
       }
 
+      const refRaw = req.body?.ref ?? null;
+      let referredBy = null;
+      if (refRaw && !isNaN(parseInt(refRaw, 10))) {
+         referredBy = parseInt(refRaw, 10);
+      }
+
       q = await pool.query(
-        `INSERT INTO users (cpf, name, email, phone, cep, address)
-         VALUES ($1,$2,$3,$4,$5,$6)
-         RETURNING id, phone, name, email, cpf, cep, address`,
-        [cpf, name, emailRaw || null, phone, cep || null, addr || null]
+        `INSERT INTO users (cpf, name, email, phone, cep, address, referred_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         RETURNING id, phone, name, email, cpf, cep, address, wallet_balance, referred_by`,
+        [cpf, name, emailRaw || null, phone, cep || null, addr || null, referredBy]
       );
       user = q.rows[0];
     }
@@ -88,7 +94,9 @@ router.post('/login-register', async (req, res, next) => {
         email: user.email,
         cpf: user.cpf,
         cep: user.cep,
-        address: user.address
+        address: user.address,
+        walletBalance: user.wallet_balance || 0,
+        referredBy: user.referred_by || null
       }
     });
   } catch (e) {

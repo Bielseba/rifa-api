@@ -94,6 +94,24 @@ router.post('/', authRequired, async (req, res, next) => {
       const price = Number(cmp.rows[0].ticket_price);
       const subtotal = price * ids.length;
 
+      // Check wallet balance
+      const uBal = await client.query('SELECT wallet_balance, referred_by FROM public.users WHERE id = $1', [req.user.id]);
+      const currentBalance = Number(uBal.rows[0]?.wallet_balance || 0);
+      const referredBy = uBal.rows[0]?.referred_by;
+
+      if (currentBalance < subtotal) {
+        return { error: 'insufficient_balance', message: 'Saldo insuficiente na carteira. Por favor, faça um depósito.' };
+      }
+
+      // Deduct balance
+      await client.query('UPDATE public.users SET wallet_balance = wallet_balance - $2 WHERE id = $1', [req.user.id, subtotal]);
+
+      // Award affiliate commission (10% of subtotal)
+      if (referredBy) {
+        const commission = subtotal * 0.10;
+        await client.query('UPDATE public.users SET wallet_balance = COALESCE(wallet_balance, 0) + $2 WHERE id = $1', [referredBy, commission]);
+      }
+
       const ins = await client.query(
         `INSERT INTO public.purchases (user_id, campaign_id, total_amount, status)
          VALUES ($1, $2, $3, 'completed')
@@ -138,6 +156,9 @@ router.post('/', authRequired, async (req, res, next) => {
 
     if (result?.error === 'no valid numbers') {
       return res.status(400).json({ error: 'no valid numbers' });
+    }
+    if (result?.error === 'insufficient_balance') {
+      return res.status(402).json(result);
     }
     if (result?.conflict) {
       return res.status(409).json(result);
