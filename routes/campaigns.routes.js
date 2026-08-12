@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
 import crypto from 'crypto';
+import { generateDrawVideo } from '../services/videoService.js';
+
+const API_BASE = process.env.API_BASE_URL || 'http://localhost:4000';
 
 const router = Router();
 const DRAW_SALT = process.env.DRAW_SALT || 'rifa_salt_2025';
@@ -70,6 +73,24 @@ async function autoExpireAndDraw() {
           `INSERT INTO public.winners (campaign_id, user_id, winning_ticket_id) VALUES ($1,$2,$3)`,
           [cid, w.user_id, w.id]
         );
+
+        // Generate personalized video with FFmpeg in background (non-blocking)
+        try {
+          const userRes = await client.query('SELECT name FROM public.users WHERE id = $1', [w.user_id]);
+          const userName = userRes.rows[0]?.name || '';
+          generateDrawVideo(w.ticket_number || String(w.id), userName)
+            .then(async (videoPath) => {
+              const fullUrl = `${API_BASE}${videoPath}`;
+              await pool.query(
+                `UPDATE public.campaigns SET video_url = $1 WHERE id = $2`,
+                [fullUrl, cid]
+              );
+              console.log(`Video generated for campaign ${cid}: ${fullUrl}`);
+            })
+            .catch((err) => console.error(`Video generation failed for campaign ${cid}:`, err.message));
+        } catch (videoErr) {
+          console.error('Failed to start video generation:', videoErr.message);
+        }
       }
     } finally {
       client.release();
@@ -125,6 +146,7 @@ router.get('/', async (req, res, next) => {
         pricePerTicket: Number(c.ticket_price),
         totalTickets: c.total_tickets,
         progress,
+        videoUrl: c.video_url || null,
         winner: c.winner_id
           ? {
               id: c.winner_id,
@@ -189,6 +211,7 @@ router.get('/:id', async (req, res, next) => {
       progress,
       description: c.description,
       totalTickets: c.total_tickets,
+      videoUrl: c.video_url || null,
       winner: c.winner_id
         ? {
             id: c.winner_id,

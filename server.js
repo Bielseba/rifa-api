@@ -28,6 +28,7 @@ app.use(cors({ origin: process.env.CORS_ORIGIN || '*', credentials: true }));
 app.use(cookieParser(process.env.JWT_SECRET || 'dev_secret'));
 
 app.use('/public', express.static(path.join(__dirname, 'public')));
+app.use('/generated-videos', express.static(path.join(__dirname, 'assets', 'videos', 'generated')));
 
 app.get('/health', (req, res) => res.json({ ok: true, now: new Date().toISOString() }));
 
