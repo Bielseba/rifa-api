@@ -2,7 +2,7 @@ import { Router } from 'express';
 import express from 'express';
 import { pool } from '../db.js';
 import crypto from 'crypto';
-import { generateDrawVideo, checkVideoStatus } from '../services/openRouterVideoService.js';
+import { generateDrawVideo, checkVideoStatus } from '../services/veedVideoService.js';
 
 const router = Router();
 const DRAW_SALT = process.env.DRAW_SALT || 'rifa_salt_2025';
