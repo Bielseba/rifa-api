@@ -131,6 +131,34 @@ router.patch('/users/:id/master', adminRequired, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+router.get('/customers', adminRequired, async (req, res, next) => {
+  try {
+    const r = await pool.query(
+      `SELECT id, name, phone, email, cpf, wallet_balance, created_at
+       FROM public.users
+       ORDER BY created_at DESC`
+    );
+    res.json(r.rows);
+  } catch (e) { next(e); }
+});
+
+router.patch('/customers/:id/wallet', adminRequired, async (req, res, next) => {
+  try {
+    const id = String(req.params.id);
+    const { balance } = req.body;
+    if (balance === undefined || isNaN(Number(balance))) {
+      return res.status(400).json({ error: 'invalid balance' });
+    }
+    const r = await pool.query(
+      `UPDATE public.users SET wallet_balance = $2 WHERE id::text = $1 RETURNING id, name, wallet_balance`,
+      [id, Number(balance)]
+    );
+    if (!r.rowCount) return res.status(404).json({ error: 'customer not found' });
+    res.json(r.rows[0]);
+  } catch (e) { next(e); }
+});
+
+
 router.post('/campaigns', adminRequired, async (req, res, next) => {
   try {
     const { title, description, image_url, ticket_price, total_tickets, draw_date, status, digits } = req.body || {};
