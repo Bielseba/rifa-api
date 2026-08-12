@@ -1,9 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
 import crypto from 'crypto';
-import { generateDrawVideo } from '../services/videoService.js';
-
-const API_BASE = process.env.API_BASE_URL || 'http://localhost:4000';
 
 const router = Router();
 const DRAW_SALT = process.env.DRAW_SALT || 'rifa_salt_2025';
@@ -19,27 +16,18 @@ async function deterministicWinner(client, campaignId) {
   if (!cq.rowCount) return null;
   const drawDate = cq.rows[0].draw_date;
   const seed = seedFromCampaign(campaignId, drawDate);
-
   const r = await client.query(
-    `
-    WITH sold AS (
-      SELECT
-        t.id,
-        t.ticket_number,
-        p.user_id,
+    `WITH sold AS (
+      SELECT t.id, t.ticket_number, p.user_id,
         ROW_NUMBER() OVER (ORDER BY LPAD(t.ticket_number,12,'0')) AS rn,
         COUNT(*) OVER() AS total
       FROM public.tickets t
       JOIN public.purchased_tickets pt ON pt.ticket_id = t.id
       JOIN public.purchases p ON p.id = pt.purchase_id
-      WHERE t.campaign_id = $1
-        AND t.status = 'sold'
-        AND p.status = 'completed'
+      WHERE t.campaign_id=$1 AND t.status='sold' AND p.status='completed'
     )
-    SELECT id, ticket_number, user_id, total
-    FROM sold
-    WHERE rn = ((($2 % GREATEST(total,1)) + 1))
-    `,
+    SELECT id, ticket_number, user_id, total FROM sold
+    WHERE rn = ((($2 % GREATEST(total,1)) + 1))`,
     [campaignId, seed]
   );
   if (!r.rowCount) return null;
@@ -48,53 +36,25 @@ async function deterministicWinner(client, campaignId) {
 
 async function autoExpireAndDraw() {
   await pool.query(`
-    UPDATE public.campaigns
-       SET status = 'expired'
-     WHERE draw_date IS NOT NULL
-       AND draw_date <= now()
-       AND status <> 'expired'
+    UPDATE public.campaigns SET status='expired'
+    WHERE draw_date IS NOT NULL AND draw_date<=now() AND status<>'expired'
   `);
-
   const expiredNoWinner = await pool.query(`
-    SELECT c.id
-      FROM public.campaigns c
- LEFT JOIN public.winners w ON w.campaign_id = c.id
-     WHERE c.status = 'expired'
-       AND w.id IS NULL
+    SELECT c.id FROM public.campaigns c
+    LEFT JOIN public.winners w ON w.campaign_id=c.id
+    WHERE c.status='expired' AND w.id IS NULL
   `);
-
   for (const row of expiredNoWinner.rows) {
-    const cid = row.id;
     const client = await pool.connect();
     try {
-      const w = await deterministicWinner(client, cid);
+      const w = await deterministicWinner(client, row.id);
       if (w) {
         await client.query(
-          `INSERT INTO public.winners (campaign_id, user_id, winning_ticket_id) VALUES ($1,$2,$3)`,
-          [cid, w.user_id, w.id]
+          `INSERT INTO public.winners (campaign_id,user_id,winning_ticket_id) VALUES ($1,$2,$3)`,
+          [row.id, w.user_id, w.id]
         );
-
-        // Generate personalized video with FFmpeg in background (non-blocking)
-        try {
-          const userRes = await client.query('SELECT name FROM public.users WHERE id = $1', [w.user_id]);
-          const userName = userRes.rows[0]?.name || '';
-          generateDrawVideo(w.ticket_number || String(w.id), userName)
-            .then(async (videoPath) => {
-              const fullUrl = `${API_BASE}${videoPath}`;
-              await pool.query(
-                `UPDATE public.campaigns SET video_url = $1 WHERE id = $2`,
-                [fullUrl, cid]
-              );
-              console.log(`Video generated for campaign ${cid}: ${fullUrl}`);
-            })
-            .catch((err) => console.error(`Video generation failed for campaign ${cid}:`, err.message));
-        } catch (videoErr) {
-          console.error('Failed to start video generation:', videoErr.message);
-        }
       }
-    } finally {
-      client.release();
-    }
+    } finally { client.release(); }
   }
 }
 
@@ -102,67 +62,32 @@ router.get('/', async (req, res, next) => {
   try {
     try { await pool.query('SELECT public.expire_ticket_reservations()'); } catch {}
     await autoExpireAndDraw();
-
     const { status } = req.query;
-    let q = `
-      SELECT c.*,
-             w.id AS winner_id,
-             w.user_id AS winner_user_id,
-             w.winning_ticket_id,
-             w.announced_at,
-             u.name AS winner_name,
+    let q = `SELECT c.*, w.id AS winner_id, w.user_id AS winner_user_id,
+             w.winning_ticket_id, w.announced_at, u.name AS winner_name,
              t.ticket_number AS winner_ticket_number
-        FROM public.campaigns c
-   LEFT JOIN public.winners w ON w.campaign_id = c.id
-   LEFT JOIN public.users   u ON u.id = w.user_id
-   LEFT JOIN public.tickets t ON t.id = w.winning_ticket_id
-    `;
+      FROM public.campaigns c
+      LEFT JOIN public.winners w ON w.campaign_id=c.id
+      LEFT JOIN public.users u ON u.id=w.user_id
+      LEFT JOIN public.tickets t ON t.id=w.winning_ticket_id`;
     const args = [];
-    if (status) {
-      q += ' WHERE (c.status = $1 OR c.status = \'expired\')';
-      args.push(status);
-    }
+    if (status) { q += ' WHERE (c.status=$1 OR c.status=\'expired\')'; args.push(status); }
     q += ' ORDER BY c.id DESC';
-
     const { rows } = await pool.query(q, args);
-
     const out = [];
     for (const c of rows) {
-      const sold = await pool.query(
-        "SELECT COUNT(*)::int AS n FROM public.tickets WHERE campaign_id=$1 AND status IN ('sold')",
-        [c.id]
-      );
-      const reserved = await pool.query(
-        "SELECT COUNT(*)::int AS n FROM public.tickets WHERE campaign_id=$1 AND status IN ('reserved')",
-        [c.id]
-      );
+      const sold = await pool.query("SELECT COUNT(*)::int AS n FROM public.tickets WHERE campaign_id=$1 AND status='sold'", [c.id]);
+      const reserved = await pool.query("SELECT COUNT(*)::int AS n FROM public.tickets WHERE campaign_id=$1 AND status='reserved'", [c.id]);
       const progress = Math.floor(((sold.rows[0].n + reserved.rows[0].n) / c.total_tickets) * 100);
       out.push({
-        id: c.id,
-        title: c.title,
-        imageUrl: c.image_url,
-        resultDate: c.draw_date,
-        status: c.status,
-        pricePerTicket: Number(c.ticket_price),
-        totalTickets: c.total_tickets,
-        progress,
-        videoUrl: c.video_url || null,
-        winner: c.winner_id
-          ? {
-              id: c.winner_id,
-              userId: c.winner_user_id,
-              name: c.winner_name || null,
-              ticketId: c.winning_ticket_id,
-              ticketNumber: c.winner_ticket_number || null,
-              announcedAt: c.announced_at
-            }
-          : null
+        id: c.id, title: c.title, imageUrl: c.image_url, resultDate: c.draw_date,
+        status: c.status, pricePerTicket: Number(c.ticket_price), totalTickets: c.total_tickets, progress,
+        winner: c.winner_id ? { id: c.winner_id, userId: c.winner_user_id, name: c.winner_name || null,
+          ticketId: c.winning_ticket_id, ticketNumber: c.winner_ticket_number || null, announcedAt: c.announced_at } : null
       });
     }
     res.json(out);
-  } catch (e) {
-    next(e);
-  }
+  } catch (e) { next(e); }
 });
 
 router.get('/:id', async (req, res, next) => {
@@ -170,88 +95,46 @@ router.get('/:id', async (req, res, next) => {
     const { id } = req.params;
     try { await pool.query('SELECT public.expire_ticket_reservations()'); } catch {}
     await autoExpireAndDraw();
-
     const camp = await pool.query(
-      `
-      SELECT c.*,
-             w.id AS winner_id,
-             w.user_id AS winner_user_id,
-             w.winning_ticket_id,
-             w.announced_at,
-             u.name AS winner_name,
-             t.ticket_number AS winner_ticket_number
-        FROM public.campaigns c
-   LEFT JOIN public.winners w ON w.campaign_id = c.id
-   LEFT JOIN public.users   u ON u.id = w.user_id
-   LEFT JOIN public.tickets t ON t.id = w.winning_ticket_id
-       WHERE c.id=$1
-      `,
-      [id]
+      `SELECT c.*, w.id AS winner_id, w.user_id AS winner_user_id,
+       w.winning_ticket_id, w.announced_at, u.name AS winner_name,
+       t.ticket_number AS winner_ticket_number
+       FROM public.campaigns c
+       LEFT JOIN public.winners w ON w.campaign_id=c.id
+       LEFT JOIN public.users u ON u.id=w.user_id
+       LEFT JOIN public.tickets t ON t.id=w.winning_ticket_id
+       WHERE c.id=$1`, [id]
     );
     if (!camp.rowCount) return res.status(404).json({ error: 'campaign not found' });
     const c = camp.rows[0];
-
-    const sold = await pool.query(
-      "SELECT COUNT(*)::int AS n FROM public.tickets WHERE campaign_id=$1 AND status IN ('sold')",
-      [c.id]
-    );
-    const reserved = await pool.query(
-      "SELECT COUNT(*)::int AS n FROM public.tickets WHERE campaign_id=$1 AND status IN ('reserved')",
-      [c.id]
-    );
+    const sold = await pool.query("SELECT COUNT(*)::int AS n FROM public.tickets WHERE campaign_id=$1 AND status='sold'", [c.id]);
+    const reserved = await pool.query("SELECT COUNT(*)::int AS n FROM public.tickets WHERE campaign_id=$1 AND status='reserved'", [c.id]);
     const progress = Math.floor(((sold.rows[0].n + reserved.rows[0].n) / c.total_tickets) * 100);
-
     res.json({
-      id: c.id,
-      title: c.title,
-      imageUrl: c.image_url,
-      resultDate: c.draw_date,
-      status: c.status,
-      pricePerTicket: Number(c.ticket_price),
-      progress,
-      description: c.description,
-      totalTickets: c.total_tickets,
-      videoUrl: c.video_url || null,
-      winner: c.winner_id
-        ? {
-            id: c.winner_id,
-            userId: c.winner_user_id,
-            name: c.winner_name || null,
-            ticketId: c.winning_ticket_id,
-            ticketNumber: c.winner_ticket_number || null,
-            announcedAt: c.announced_at
-          }
-        : null
+      id: c.id, title: c.title, imageUrl: c.image_url, resultDate: c.draw_date,
+      status: c.status, pricePerTicket: Number(c.ticket_price), progress,
+      description: c.description, totalTickets: c.total_tickets,
+      winner: c.winner_id ? { id: c.winner_id, userId: c.winner_user_id, name: c.winner_name || null,
+        ticketId: c.winning_ticket_id, ticketNumber: c.winner_ticket_number || null, announcedAt: c.announced_at } : null
     });
-  } catch (e) {
-    next(e);
-  }
+  } catch (e) { next(e); }
 });
 
 router.get('/:id/unavailable-tickets', async (req, res, next) => {
   try {
     const { id } = req.params;
     try { await pool.query('SELECT public.expire_ticket_reservations()'); } catch {}
-
     const { rows } = await pool.query(
-      `
-      SELECT ticket_number, status
-        FROM public.tickets
-       WHERE campaign_id=$1
-         AND status IN ('reserved','sold')
-       ORDER BY LPAD(ticket_number, 12, '0') ASC
-      `,
-      [id]
+      `SELECT ticket_number, status FROM public.tickets
+       WHERE campaign_id=$1 AND status IN ('reserved','sold')
+       ORDER BY LPAD(ticket_number,12,'0') ASC`, [id]
     );
-
-    const unavailableNumbers = rows.map((r) => r.ticket_number);
-    const reserved = rows.filter((r) => r.status === 'reserved').map((r) => r.ticket_number);
-    const sold = rows.filter((r) => r.status === 'sold').map((r) => r.ticket_number);
-
-    res.json({ unavailableNumbers, reserved, sold });
-  } catch (e) {
-    next(e);
-  }
+    res.json({
+      unavailableNumbers: rows.map(r => r.ticket_number),
+      reserved: rows.filter(r => r.status==='reserved').map(r => r.ticket_number),
+      sold: rows.filter(r => r.status==='sold').map(r => r.ticket_number),
+    });
+  } catch (e) { next(e); }
 });
 
 export default router;
