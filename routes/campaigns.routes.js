@@ -1,8 +1,6 @@
 import { Router } from 'express';
-import express from 'express';
 import { pool } from '../db.js';
 import crypto from 'crypto';
-import { generateDrawVideo, checkVideoStatus } from '../services/veedVideoService.js';
 
 const router = Router();
 const DRAW_SALT = process.env.DRAW_SALT || 'rifa_salt_2025';
@@ -72,34 +70,6 @@ async function autoExpireAndDraw() {
           `INSERT INTO public.winners (campaign_id, user_id, winning_ticket_id) VALUES ($1,$2,$3)`,
           [cid, w.user_id, w.id]
         );
-        
-        // Initiate video generation
-        try {
-            // Get user name and ticket number
-            const userRes = await client.query('SELECT name FROM public.users WHERE id = $1', [w.user_id]);
-            const userName = userRes.rows[0]?.name;
-            
-            const jobResult = await generateDrawVideo(w.ticket_number || w.id, userName);
-            
-            if (jobResult) {
-                if (typeof jobResult === 'object' && jobResult.ready) {
-                    await client.query(
-                        `UPDATE public.campaigns SET video_status = 'ready', video_url = $1 WHERE id = $2`,
-                        [jobResult.url, cid]
-                    );
-                } else {
-                    await client.query(
-                        `UPDATE public.campaigns SET video_status = 'generating', video_job_id = $1 WHERE id = $2`,
-                        [jobResult, cid]
-                    );
-                }
-            } else {
-                await client.query(`UPDATE public.campaigns SET video_status = 'failed' WHERE id = $1`, [cid]);
-            }
-        } catch (videoError) {
-            console.error("Failed to generate video:", videoError);
-            await client.query(`UPDATE public.campaigns SET video_status = 'failed' WHERE id = $1`, [cid]);
-        }
       }
     } finally {
       client.release();
@@ -107,37 +77,10 @@ async function autoExpireAndDraw() {
   }
 }
 
-async function checkPendingVideos() {
-    const pendingCampaigns = await pool.query(`
-        SELECT id, video_job_id FROM public.campaigns 
-        WHERE video_status = 'generating' AND video_job_id IS NOT NULL
-    `);
-    
-    for (const campaign of pendingCampaigns.rows) {
-        try {
-            const statusRes = await checkVideoStatus(campaign.video_job_id);
-            if (statusRes.status === 'ready') {
-                await pool.query(
-                    `UPDATE public.campaigns SET video_status = 'ready', video_url = $1 WHERE id = $2`,
-                    [statusRes.url, campaign.id]
-                );
-            } else if (statusRes.status === 'failed') {
-                await pool.query(
-                    `UPDATE public.campaigns SET video_status = 'failed' WHERE id = $1`,
-                    [campaign.id]
-                );
-            }
-        } catch (error) {
-            console.error("Error checking video status for campaign", campaign.id, error);
-        }
-    }
-}
-
 router.get('/', async (req, res, next) => {
   try {
     try { await pool.query('SELECT public.expire_ticket_reservations()'); } catch {}
     await autoExpireAndDraw();
-    await checkPendingVideos();
 
     const { status } = req.query;
     let q = `
@@ -182,8 +125,6 @@ router.get('/', async (req, res, next) => {
         pricePerTicket: Number(c.ticket_price),
         totalTickets: c.total_tickets,
         progress,
-        videoStatus: c.video_status,
-        videoUrl: c.video_url,
         winner: c.winner_id
           ? {
               id: c.winner_id,
@@ -248,8 +189,6 @@ router.get('/:id', async (req, res, next) => {
       progress,
       description: c.description,
       totalTickets: c.total_tickets,
-      videoStatus: c.video_status,
-      videoUrl: c.video_url,
       winner: c.winner_id
         ? {
             id: c.winner_id,
